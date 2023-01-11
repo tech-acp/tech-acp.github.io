@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "753686199868",
+    "project_id": "suivi-brm",
+    "storage_bucket": "suivi-brm.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:753686199868:android:246e61b52f100e96a68d39",
+        "android_client_info": {
+          "package_name": "fr.acp.suivi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "753686199868-st6rvi0jk4h9piaup2bplukkqk83hvti.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "fr.acp.suivi",
+            "certificate_hash": "9bbb3186b2189ef16d8f272bdab59362c395cbb4"
+          }
+        },
+        {
+          "client_id": "753686199868-2t16tnmfftkgqcldgcmj5te4f9t18sqh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC7qLsleT4RlNoF_OYgYfFL6kyyugnwy8A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "753686199868-2t16tnmfftkgqcldgcmj5te4f9t18sqh.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "753686199868-ielod2ep6jsabfvd24jop53mml3c8gtj.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "fr.acp.suivi"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
