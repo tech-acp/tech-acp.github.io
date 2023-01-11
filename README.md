@@ -1,6 +1,6 @@
 # suivi
 
-A new Flutter project.
+Application de suivi des épreuves de l'Audax Club Parisien.
 
 ## Getting Started
 
