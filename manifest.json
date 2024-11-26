@@ -1,6 +1,6 @@
 {
-    "name": "suivi",
-    "short_name": "suivi",
+    "name": "carte-acp",
+    "short_name": "carte-acp",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
