@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchBrevets } from './lib/api'
-import { Brevet, BrevetFilters as BrevetFiltersType, getDistanceColor } from './types/brevet'
+import { Brevet, BrevetFilters as BrevetFiltersType } from './types/brevet'
 import { BrevetFilters } from './components/BrevetFilters'
 import { BrevetSidebar } from './components/BrevetSidebar'
 import { BrevetBottomSheet } from './components/BrevetBottomSheet'
@@ -114,14 +114,12 @@ function App() {
     function addMarkersToMap() {
       if (!map.current) return
 
-      // Créer un Set des IDs de brevets sélectionnés pour vérification rapide
-      const selectedIds = new Set(selectedBrevets.map(b => b.id))
-
-      // Créer les données GeoJSON
+      // Créer les données GeoJSON (sans l'état isSelected)
       const geojsonData: GeoJSON.FeatureCollection = {
         type: 'FeatureCollection',
         features: brevets.map(brevet => ({
           type: 'Feature',
+          id: brevet.id, // Important pour setFeatureState
           geometry: {
             type: 'Point',
             coordinates: [brevet.longitude!, brevet.latitude!]
@@ -130,19 +128,19 @@ function App() {
             id: brevet.id,
             nom_brm: brevet.nom_brm,
             distance_brevet: brevet.distance_brevet,
-            ville_depart: brevet.ville_depart,
-            isSelected: selectedIds.has(brevet.id)
+            ville_depart: brevet.ville_depart
           }
         }))
       }
 
-      // Ajouter la source
+      // Ajouter la source avec promoteId pour utiliser feature-state
       map.current!.addSource('brevets', {
         type: 'geojson',
-        data: geojsonData
+        data: geojsonData,
+        promoteId: 'id'
       })
 
-      // Ajouter la couche de marqueurs avec styles conditionnels
+      // Ajouter la couche de marqueurs avec styles basés sur feature-state
       map.current!.addLayer({
         id: 'brevets-layer',
         type: 'circle',
@@ -151,14 +149,14 @@ function App() {
           // Taille plus grande si sélectionné
           'circle-radius': [
             'case',
-            ['get', 'isSelected'],
+            ['boolean', ['feature-state', 'selected'], false],
             12, // Taille si sélectionné
             8   // Taille par défaut
           ],
           // Couleur bleue si sélectionné, rouge sinon
           'circle-color': [
             'case',
-            ['get', 'isSelected'],
+            ['boolean', ['feature-state', 'selected'], false],
             '#2E5077', // Bleu si sélectionné
             '#8B3A3A'  // Rouge des badges par défaut
           ],
@@ -215,7 +213,22 @@ function App() {
         }
       })
     }
-  }, [brevets, loading, selectedBrevets])
+  }, [brevets, loading])
+
+  // Gérer l'état de sélection des marqueurs avec feature-state
+  useEffect(() => {
+    if (!map.current || !map.current.getSource('brevets')) return
+
+    const selectedIds = new Set(selectedBrevets.map(b => b.id))
+
+    // Mettre à jour le feature-state pour tous les brevets
+    brevets.forEach(brevet => {
+      map.current!.setFeatureState(
+        { source: 'brevets', id: brevet.id },
+        { selected: selectedIds.has(brevet.id) }
+      )
+    })
+  }, [selectedBrevets, brevets])
 
   // Calculer les counts de brevets par distance (en tenant compte des filtres de date)
   const distanceCounts = allBrevetsForCounts.reduce((acc, brevet) => {
