@@ -7,6 +7,7 @@ import { BrevetFilters } from './components/BrevetFilters'
 import { BrevetSidebar } from './components/BrevetSidebar'
 import { BrevetBottomSheet } from './components/BrevetBottomSheet'
 import { useIsMobile } from './hooks/useMediaQuery'
+import { Eye } from 'lucide-react'
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -246,6 +247,18 @@ function App() {
           <p className="text-gray-700">Chargement des brevets...</p>
         </div>
       )}
+
+      <div className="absolute bottom-3 left-3 bg-white/30 px-2 py-1 rounded text-xs backdrop-blur-sm">
+        <a
+          href="https://www.hugofaye.fr"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="!text-gray-500 hover:!text-gray-700 transition-colors flex items-center gap-1 !no-underline"
+        >
+          <Eye className="w-3 h-3" />
+          Développé par Hugo Faye
+        </a>
+      </div>
     </div>
   )
 }
