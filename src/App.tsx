@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { supabase } from './lib/supabase'
-import { Brevet, BrevetFilters as BrevetFiltersType } from './types/brevet'
+import { fetchBrevets } from './lib/api'
+import { Brevet, BrevetFilters as BrevetFiltersType, getDistanceColor } from './types/brevet'
 import { BrevetFilters } from './components/BrevetFilters'
 import { BrevetSidebar } from './components/BrevetSidebar'
 
@@ -14,53 +14,50 @@ function App() {
   const [selectedBrevet, setSelectedBrevet] = useState<Brevet | null>(null)
   const [filters, setFilters] = useState<BrevetFiltersType>({
     distances: [200, 300, 400, 600, 1000],
-    dateStart: null,
-    dateEnd: null
+    dateStart: '2026-01-01',
+    dateEnd: '2026-12-31'
   })
   const [loading, setLoading] = useState(true)
+  const [allBrevetsForCounts, setAllBrevetsForCounts] = useState<Brevet[]>([])
 
-  // Récupérer les brevets depuis Supabase
+  // Récupérer tous les brevets pour les counts (une seule fois)
   useEffect(() => {
-    const fetchBrevets = async () => {
+    const fetchAllBrevets = async () => {
+      try {
+        const data = await fetchBrevets({ year: 2026 })
+        setAllBrevetsForCounts(data)
+      } catch (error) {
+        console.error('Erreur lors de la récupération des counts:', error)
+      }
+    }
+
+    fetchAllBrevets()
+  }, [])
+
+  // Récupérer les brevets filtrés depuis Supabase
+  useEffect(() => {
+    const fetchFilteredBrevets = async () => {
       setLoading(true)
       try {
-        let query = supabase
-          .from('brevets')
-          .select(`
-            *,
-            club:clubs(*)
-          `)
-          .not('latitude', 'is', null)
-          .not('longitude', 'is', null)
+        console.log('🔵 App: Fetching brevets with filters:', filters)
 
-        // Filtrer par distance
-        if (filters.distances.length > 0) {
-          query = query.in('distance_brevet', filters.distances)
-        }
+        const data = await fetchBrevets({
+          year: 2026,
+          dateStart: filters.dateStart,
+          dateEnd: filters.dateEnd,
+          distances: filters.distances
+        })
 
-        // Filtrer par date
-        if (filters.dateStart) {
-          query = query.gte('date_brevet', filters.dateStart)
-        }
-        if (filters.dateEnd) {
-          query = query.lte('date_brevet', filters.dateEnd)
-        }
-
-        const { data, error } = await query
-
-        if (error) {
-          console.error('Erreur lors de la récupération des brevets:', error)
-        } else {
-          setBrevets(data || [])
-        }
+        console.log('🟢 App: Final brevets count:', data.length)
+        setBrevets(data)
       } catch (error) {
-        console.error('Erreur:', error)
+        console.error('🔴 App: Erreur lors de la récupération des brevets:', error)
       } finally {
         setLoading(false)
       }
     }
 
-    fetchBrevets()
+    fetchFilteredBrevets()
   }, [filters])
 
   // Initialiser la carte
@@ -105,6 +102,12 @@ function App() {
         map.current.removeSource('brevets')
       }
 
+      addMarkersToMap()
+    }
+
+    function addMarkersToMap() {
+      if (!map.current) return
+
       // Créer les données GeoJSON
       const geojsonData: GeoJSON.FeatureCollection = {
         type: 'FeatureCollection',
@@ -129,16 +132,17 @@ function App() {
         data: geojsonData
       })
 
-      // Ajouter la couche de marqueurs avec les couleurs ACP
+      // Ajouter la couche de marqueurs avec la couleur rouge
       map.current!.addLayer({
         id: 'brevets-layer',
         type: 'circle',
         source: 'brevets',
         paint: {
           'circle-radius': 8,
-          'circle-color': '#E52421', // Rouge ACP
+          'circle-color': '#8B3A3A', // Rouge des badges
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#005EB8' // Bleu ACP
+          'circle-stroke-color': '#ffffff',
+          'circle-opacity': 1
         }
       })
 
@@ -170,6 +174,22 @@ function App() {
     }
   }, [brevets, loading])
 
+  // Calculer les counts de brevets par distance (en tenant compte des filtres de date)
+  const distanceCounts = allBrevetsForCounts.reduce((acc, brevet) => {
+    const distance = brevet.distance_brevet
+    if (distance) {
+      // Appliquer les filtres de date si présents
+      const passesDateFilter = 
+        (!filters.dateStart || (brevet.date_brevet && brevet.date_brevet >= filters.dateStart)) &&
+        (!filters.dateEnd || (brevet.date_brevet && brevet.date_brevet <= filters.dateEnd))
+      
+      if (passesDateFilter) {
+        acc[distance] = (acc[distance] || 0) + 1
+      }
+    }
+    return acc
+  }, {} as Record<number, number>)
+
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
       <div 
@@ -179,7 +199,8 @@ function App() {
       
       <BrevetFilters 
         filters={filters} 
-        onFiltersChange={setFilters} 
+        onFiltersChange={setFilters}
+        distanceCounts={distanceCounts}
       />
       
       <BrevetSidebar 

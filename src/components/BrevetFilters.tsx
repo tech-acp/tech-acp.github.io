@@ -1,16 +1,15 @@
-import { useState } from 'react'
-import { BrevetFilters as BrevetFiltersType } from '../types/brevet'
+import { BrevetFilters as BrevetFiltersType, getDistanceColor } from '../types/brevet'
+import { CustomDatePicker } from './CustomDatePicker'
 
 interface BrevetFiltersProps {
   filters: BrevetFiltersType
   onFiltersChange: (filters: BrevetFiltersType) => void
+  distanceCounts?: Record<number, number>
 }
 
 const AVAILABLE_DISTANCES = [200, 300, 400, 600, 1000]
 
-export function BrevetFilters({ filters, onFiltersChange }: BrevetFiltersProps) {
-  const [isOpen, setIsOpen] = useState(true)
-
+export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {} }: BrevetFiltersProps) {
   const toggleDistance = (distance: number) => {
     const newDistances = filters.distances.includes(distance)
       ? filters.distances.filter(d => d !== distance)
@@ -22,97 +21,80 @@ export function BrevetFilters({ filters, onFiltersChange }: BrevetFiltersProps) 
     })
   }
 
-  const toggleAll = () => {
-    const newDistances = filters.distances.length === AVAILABLE_DISTANCES.length
-      ? []
-      : AVAILABLE_DISTANCES
-    
+  const handleDateStartChange = (date: string | null) => {
     onFiltersChange({
       ...filters,
-      distances: newDistances
+      dateStart: date
     })
   }
 
-  const handleDateStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDateEndChange = (date: string | null) => {
     onFiltersChange({
       ...filters,
-      dateStart: e.target.value || null
-    })
-  }
-
-  const handleDateEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onFiltersChange({
-      ...filters,
-      dateEnd: e.target.value || null
+      dateEnd: date
     })
   }
 
   return (
-    <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg z-10 w-80">
-      <div 
-        className="flex items-center justify-between p-4 cursor-pointer border-b"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <h2 className="font-semibold text-lg">Filtres</h2>
-        <span className="text-xl">{isOpen ? '−' : '+'}</span>
-      </div>
-      
-      {isOpen && (
-        <div className="p-4 space-y-4">
-          {/* Distance Filters */}
-          <div>
-            <h3 className="font-medium mb-2">Distance (km)</h3>
-            <div className="space-y-2">
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={filters.distances.length === AVAILABLE_DISTANCES.length}
-                  onChange={toggleAll}
-                  className="w-4 h-4 text-blue-600 rounded"
-                />
-                <span className="text-sm font-medium">Toutes les distances</span>
-              </label>
-              
-              {AVAILABLE_DISTANCES.map(distance => (
-                <label key={distance} className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={filters.distances.includes(distance)}
-                    onChange={() => toggleDistance(distance)}
-                    className="w-4 h-4 text-blue-600 rounded"
-                  />
-                  <span className="text-sm">{distance} km</span>
-                </label>
-              ))}
-            </div>
-          </div>
+    <div className="absolute top-4 left-4 bg-white rounded-lg shadow-md border border-slate-200 z-10">
+      <div className="px-4 py-2 flex items-center gap-3">
+        {/* Distance Buttons with Badges */}
+        <div className="flex items-center gap-2">
+          {AVAILABLE_DISTANCES.map(distance => {
+            const isActive = filters.distances.includes(distance)
+            const count = distanceCounts[distance] || 0
+            return (
+              <button
+                key={distance}
+                onClick={() => toggleDistance(distance)}
+                style={{
+                  backgroundColor: isActive ? '#2E5077' : 'white',
+                  color: isActive ? 'white' : '#2E5077',
+                  border: 'none',
+                  outline: 'none'
+                }}
+                className={`
+                  px-3 py-1.5 rounded text-sm font-semibold
+                  flex items-center gap-2
+                  transition-all duration-200
+                  hover:opacity-90
+                `}
+              >
+                <span className="font-semibold">{distance}km</span>
+                <span
+                  className="px-1.5 py-0.5 rounded text-xs font-bold text-white"
+                  style={{ backgroundColor: '#8B3A3A' }}
+                >
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
 
-          {/* Date Filters */}
-          <div>
-            <h3 className="font-medium mb-2">Période</h3>
-            <div className="space-y-2">
-              <div>
-                <label className="text-sm text-gray-600 block mb-1">Date de début</label>
-                <input
-                  type="date"
-                  value={filters.dateStart || ''}
-                  onChange={handleDateStartChange}
-                  className="w-full px-3 py-2 border rounded-md text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-gray-600 block mb-1">Date de fin</label>
-                <input
-                  type="date"
-                  value={filters.dateEnd || ''}
-                  onChange={handleDateEndChange}
-                  className="w-full px-3 py-2 border rounded-md text-sm"
-                />
-              </div>
-            </div>
+        {/* Divider */}
+        <div className="w-px h-6 bg-slate-300"></div>
+
+        {/* Date Filters */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm text-slate-600 font-medium">Du</label>
+            <CustomDatePicker
+              value={filters.dateStart}
+              onChange={handleDateStartChange}
+              placeholder="Date début"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm text-slate-600 font-medium">Au</label>
+            <CustomDatePicker
+              value={filters.dateEnd}
+              onChange={handleDateEndChange}
+              placeholder="Date fin"
+            />
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
