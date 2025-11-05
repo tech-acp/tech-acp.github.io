@@ -130,7 +130,7 @@ export function BrevetSidebar({ brevets, onClose }: BrevetSidebarProps) {
 
       {brevets.length > 0 && (
         <div className="p-6 space-y-4">
-          {brevets.map((brevet) => {
+          {[...brevets].sort((a, b) => new Date(a.date_brevet).getTime() - new Date(b.date_brevet).getTime()).map((brevet) => {
             const isExpanded = expandedIds.has(brevet.id)
 
             return (

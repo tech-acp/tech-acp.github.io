@@ -153,7 +153,7 @@ export function BrevetBottomSheet({ brevets, onClose }: BrevetBottomSheetProps) 
               scrollbarColor: '#cbd5e1 #f1f5f9'
             }}
           >
-            {brevets.map((brevet) => {
+            {[...brevets].sort((a, b) => new Date(a.date_brevet).getTime() - new Date(b.date_brevet).getTime()).map((brevet) => {
               const isExpanded = expandedIds.has(brevet.id)
 
               return (
