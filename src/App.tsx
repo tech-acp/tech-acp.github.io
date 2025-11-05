@@ -114,6 +114,9 @@ function App() {
     function addMarkersToMap() {
       if (!map.current) return
 
+      // Créer un Set des IDs de brevets sélectionnés pour vérification rapide
+      const selectedIds = new Set(selectedBrevets.map(b => b.id))
+
       // Créer les données GeoJSON
       const geojsonData: GeoJSON.FeatureCollection = {
         type: 'FeatureCollection',
@@ -127,7 +130,8 @@ function App() {
             id: brevet.id,
             nom_brm: brevet.nom_brm,
             distance_brevet: brevet.distance_brevet,
-            ville_depart: brevet.ville_depart
+            ville_depart: brevet.ville_depart,
+            isSelected: selectedIds.has(brevet.id)
           }
         }))
       }
@@ -138,14 +142,26 @@ function App() {
         data: geojsonData
       })
 
-      // Ajouter la couche de marqueurs avec la couleur rouge
+      // Ajouter la couche de marqueurs avec styles conditionnels
       map.current!.addLayer({
         id: 'brevets-layer',
         type: 'circle',
         source: 'brevets',
         paint: {
-          'circle-radius': 8,
-          'circle-color': '#8B3A3A', // Rouge des badges
+          // Taille plus grande si sélectionné
+          'circle-radius': [
+            'case',
+            ['get', 'isSelected'],
+            12, // Taille si sélectionné
+            8   // Taille par défaut
+          ],
+          // Couleur bleue si sélectionné, rouge sinon
+          'circle-color': [
+            'case',
+            ['get', 'isSelected'],
+            '#2E5077', // Bleu si sélectionné
+            '#8B3A3A'  // Rouge des badges par défaut
+          ],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#ffffff',
           'circle-opacity': 1
@@ -199,7 +215,7 @@ function App() {
         }
       })
     }
-  }, [brevets, loading])
+  }, [brevets, loading, selectedBrevets])
 
   // Calculer les counts de brevets par distance (en tenant compte des filtres de date)
   const distanceCounts = allBrevetsForCounts.reduce((acc, brevet) => {
