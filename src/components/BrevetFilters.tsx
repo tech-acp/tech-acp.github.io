@@ -36,10 +36,10 @@ export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {} }:
   }
 
   return (
-    <div className="absolute top-4 left-4 bg-white/50 backdrop-blur-sm rounded-lg shadow-md border border-slate-200 z-10">
-      <div className="px-4 py-2 flex flex-col gap-3">
+    <div className="absolute top-2 left-2 md:top-4 md:left-4 bg-white/50 backdrop-blur-sm rounded-lg shadow-md border border-slate-200 z-10 max-w-[calc(100vw-1rem)] md:max-w-none">
+      <div className="px-2 py-2 md:px-4 flex flex-col gap-2 md:gap-3">
         {/* Distance Buttons with Badges */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {AVAILABLE_DISTANCES.map(distance => {
             const isActive = filters.distances.includes(distance)
             const count = distanceCounts[distance] || 0
@@ -54,15 +54,15 @@ export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {} }:
                   outline: 'none'
                 }}
                 className={`
-                  px-3 py-1.5 rounded text-sm font-semibold
-                  flex items-center gap-2
+                  px-2 md:px-3 py-1 md:py-1.5 rounded text-xs md:text-sm font-semibold
+                  flex items-center gap-1.5 md:gap-2 whitespace-nowrap
                   transition-all duration-200
-                  hover:opacity-90
+                  hover:opacity-90 flex-shrink-0
                 `}
               >
                 <span className="font-semibold">{distance}km</span>
                 <span
-                  className="px-1.5 py-0.5 rounded text-xs font-bold text-white"
+                  className="px-1 md:px-1.5 py-0.5 rounded text-xs font-bold text-white"
                   style={{ backgroundColor: '#8B3A3A' }}
                 >
                   {count}
@@ -73,10 +73,10 @@ export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {} }:
         </div>
 
         {/* Date Filters */}
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <label className="text-sm text-slate-600 font-medium">Du</label>
+              <label className="text-xs md:text-sm text-slate-600 font-medium whitespace-nowrap">Du</label>
               <CustomDatePicker
                 value={filters.dateStart}
                 onChange={handleDateStartChange}
@@ -84,7 +84,7 @@ export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {} }:
               />
             </div>
             <div className="flex items-center gap-1.5">
-              <label className="text-sm text-slate-600 font-medium">Au</label>
+              <label className="text-xs md:text-sm text-slate-600 font-medium whitespace-nowrap">Au</label>
               <CustomDatePicker
                 value={filters.dateEnd}
                 onChange={handleDateEndChange}
@@ -97,9 +97,8 @@ export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {} }:
             style={{
               backgroundColor: filters.eligibleR10000 ? '#2E5077' : 'white',
               color: filters.eligibleR10000 ? 'white' : '#2E5077',
-              border: filters.eligibleR10000 ? 'none' : '2px solid #2E5077'
             }}
-            className="px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 hover:opacity-90"
+            className="px-3 md:px-4 py-1 md:py-1.5 rounded-full text-xs md:text-sm font-semibold transition-all duration-200 hover:opacity-90 whitespace-nowrap"
           >
             Éligible R10000
           </button>

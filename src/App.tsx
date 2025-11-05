@@ -5,11 +5,14 @@ import { fetchBrevets } from './lib/api'
 import { Brevet, BrevetFilters as BrevetFiltersType, getDistanceColor } from './types/brevet'
 import { BrevetFilters } from './components/BrevetFilters'
 import { BrevetSidebar } from './components/BrevetSidebar'
+import { BrevetBottomSheet } from './components/BrevetBottomSheet'
+import { useIsMobile } from './hooks/useMediaQuery'
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
-  
+  const isMobile = useIsMobile()
+
   const [brevets, setBrevets] = useState<Brevet[]>([])
   const [selectedBrevets, setSelectedBrevets] = useState<Brevet[]>([])
   const [filters, setFilters] = useState<BrevetFiltersType>({
@@ -220,16 +223,23 @@ function App() {
         style={{ width: '100%', height: '100%' }}
       />
       
-      <BrevetFilters 
-        filters={filters} 
+      <BrevetFilters
+        filters={filters}
         onFiltersChange={setFilters}
         distanceCounts={distanceCounts}
       />
-      
-      <BrevetSidebar
-        brevets={selectedBrevets}
-        onClose={() => setSelectedBrevets([])}
-      />
+
+      {isMobile ? (
+        <BrevetBottomSheet
+          brevets={selectedBrevets}
+          onClose={() => setSelectedBrevets([])}
+        />
+      ) : (
+        <BrevetSidebar
+          brevets={selectedBrevets}
+          onClose={() => setSelectedBrevets([])}
+        />
+      )}
       
       {loading && (
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white px-6 py-3 rounded-lg shadow-lg">

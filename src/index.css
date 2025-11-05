@@ -185,6 +185,17 @@ button:focus-visible {
   }
 }
 
+/* Hide scrollbar for horizontal scroll on mobile */
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Custom DatePicker Styles - Modern ACP Theme */
 .react-datepicker-wrapper {
   display: inline-block;
