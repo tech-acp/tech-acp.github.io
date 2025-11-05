@@ -6,6 +6,7 @@ export interface FetchBrevetsParams {
   dateStart?: string | null
   dateEnd?: string | null
   distances?: number[]
+  eligibleR10000?: boolean
 }
 
 export async function fetchBrevets(params: FetchBrevetsParams = {}): Promise<Brevet[]> {
@@ -43,6 +44,11 @@ export async function fetchBrevets(params: FetchBrevetsParams = {}): Promise<Bre
         return []
       }
       query = query.in('distance_brevet', params.distances)
+    }
+
+    // Filtrer par éligibilité R10000
+    if (params.eligibleR10000) {
+      query = query.eq('eligible_r10000', true)
     }
 
     // Filtrer les brevets avec coordonnées uniquement

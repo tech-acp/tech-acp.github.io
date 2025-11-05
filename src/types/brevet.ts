@@ -85,6 +85,7 @@ export interface BrevetFilters {
   distances: number[]
   dateStart: string | null
   dateEnd: string | null
+  eligibleR10000: boolean
 }
 
 // Palette de couleurs pour les distances (correspond aux boutons de filtre)

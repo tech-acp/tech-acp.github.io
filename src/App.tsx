@@ -11,11 +11,12 @@ function App() {
   const map = useRef<maplibregl.Map | null>(null)
   
   const [brevets, setBrevets] = useState<Brevet[]>([])
-  const [selectedBrevet, setSelectedBrevet] = useState<Brevet | null>(null)
+  const [selectedBrevets, setSelectedBrevets] = useState<Brevet[]>([])
   const [filters, setFilters] = useState<BrevetFiltersType>({
     distances: [200, 300, 400, 600, 1000],
     dateStart: '2026-01-01',
-    dateEnd: '2026-12-31'
+    dateEnd: '2026-12-31',
+    eligibleR10000: false
   })
   const [loading, setLoading] = useState(true)
   const [allBrevetsForCounts, setAllBrevetsForCounts] = useState<Brevet[]>([])
@@ -45,7 +46,8 @@ function App() {
           year: 2026,
           dateStart: filters.dateStart,
           dateEnd: filters.dateEnd,
-          distances: filters.distances
+          distances: filters.distances,
+          eligibleR10000: filters.eligibleR10000
         })
 
         console.log('🟢 App: Final brevets count:', data.length)
@@ -161,14 +163,35 @@ function App() {
 
       // Gérer le clic sur un marqueur
       map.current!.on('click', 'brevets-layer', (e) => {
+        e.preventDefault()
         if (!e.features || e.features.length === 0) return
 
         const feature = e.features[0]
-        const brevetId = feature.properties?.id
+        const clickedBrevetId = feature.properties?.id
+        const clickedBrevet = brevets.find(b => b.id === clickedBrevetId)
 
-        const brevet = brevets.find(b => b.id === brevetId)
-        if (brevet) {
-          setSelectedBrevet(brevet)
+        if (clickedBrevet && clickedBrevet.latitude !== null && clickedBrevet.longitude !== null) {
+          // Trouver tous les brevets avec les mêmes coordonnées
+          const brevetsAtSameLocation = brevets.filter(b =>
+            b.latitude === clickedBrevet.latitude &&
+            b.longitude === clickedBrevet.longitude
+          )
+
+          console.log('🔵 Brevets au même point:', brevetsAtSameLocation.length)
+          setSelectedBrevets(brevetsAtSameLocation)
+        }
+      })
+
+      // Gérer le clic sur la carte (en dehors des marqueurs) pour fermer la sidebar
+      map.current!.on('click', (e) => {
+        // Vérifier si le clic est sur un marqueur
+        const features = map.current!.queryRenderedFeatures(e.point, {
+          layers: ['brevets-layer']
+        })
+
+        // Si aucun marqueur n'est cliqué, fermer la sidebar
+        if (features.length === 0) {
+          setSelectedBrevets([])
         }
       })
     }
@@ -203,9 +226,9 @@ function App() {
         distanceCounts={distanceCounts}
       />
       
-      <BrevetSidebar 
-        brevet={selectedBrevet} 
-        onClose={() => setSelectedBrevet(null)} 
+      <BrevetSidebar
+        brevets={selectedBrevets}
+        onClose={() => setSelectedBrevets([])}
       />
       
       {loading && (

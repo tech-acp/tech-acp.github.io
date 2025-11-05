@@ -36,8 +36,8 @@ export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {} }:
   }
 
   return (
-    <div className="absolute top-4 left-4 bg-white rounded-lg shadow-md border border-slate-200 z-10">
-      <div className="px-4 py-2 flex items-center gap-3">
+    <div className="absolute top-4 left-4 bg-white/50 backdrop-blur-sm rounded-lg shadow-md border border-slate-200 z-10">
+      <div className="px-4 py-2 flex flex-col gap-3">
         {/* Distance Buttons with Badges */}
         <div className="flex items-center gap-2">
           {AVAILABLE_DISTANCES.map(distance => {
@@ -72,27 +72,37 @@ export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {} }:
           })}
         </div>
 
-        {/* Divider */}
-        <div className="w-px h-6 bg-slate-300"></div>
-
         {/* Date Filters */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <label className="text-sm text-slate-600 font-medium">Du</label>
-            <CustomDatePicker
-              value={filters.dateStart}
-              onChange={handleDateStartChange}
-              placeholder="Date début"
-            />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <label className="text-sm text-slate-600 font-medium">Du</label>
+              <CustomDatePicker
+                value={filters.dateStart}
+                onChange={handleDateStartChange}
+                placeholder="Date début"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <label className="text-sm text-slate-600 font-medium">Au</label>
+              <CustomDatePicker
+                value={filters.dateEnd}
+                onChange={handleDateEndChange}
+                placeholder="Date fin"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <label className="text-sm text-slate-600 font-medium">Au</label>
-            <CustomDatePicker
-              value={filters.dateEnd}
-              onChange={handleDateEndChange}
-              placeholder="Date fin"
-            />
-          </div>
+          <button
+            onClick={() => onFiltersChange({ ...filters, eligibleR10000: !filters.eligibleR10000 })}
+            style={{
+              backgroundColor: filters.eligibleR10000 ? '#2E5077' : 'white',
+              color: filters.eligibleR10000 ? 'white' : '#2E5077',
+              border: filters.eligibleR10000 ? 'none' : '2px solid #2E5077'
+            }}
+            className="px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 hover:opacity-90"
+          >
+            Éligible R10000
+          </button>
         </div>
       </div>
     </div>
