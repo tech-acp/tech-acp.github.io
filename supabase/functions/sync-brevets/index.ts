@@ -161,7 +161,27 @@ Deno.serve(async (req) => {
     }
     console.log(`🟢 Upserted ${brevetsToUpsert.length} brevets (coordinates preserved)`);
 
-    // 6. Identifier les brevets nécessitant un géocodage
+    // 6. Supprimer les brevets qui n'existent plus dans l'API
+    const apiBrevetIds = apiBrevets.map((b: any) => b.id);
+    const { data: deletedBrevets, error: deleteError } = await supabase
+      .from('brevets')
+      .delete()
+      .not('id', 'in', `(${apiBrevetIds.join(',')})`)
+      .select('id');
+
+    if (deleteError) {
+      console.error('🔴 Error deleting obsolete brevets:', deleteError);
+      throw new Error(`Failed to delete obsolete brevets: ${deleteError.message}`);
+    }
+
+    const deletedCount = deletedBrevets?.length || 0;
+    const deletedIds = deletedBrevets?.map(b => b.id) || [];
+    console.log(`🟢 Deleted ${deletedCount} obsolete brevets from database`);
+    if (deletedCount > 0) {
+      console.log(`   Deleted IDs: ${deletedIds.join(', ')}`);
+    }
+
+    // 7. Identifier les brevets nécessitant un géocodage
     // Géocoder UNIQUEMENT si:
     // - Les coordonnées (latitude/longitude) ne sont pas renseignées dans la base
     // - OU la ville/département/pays a changé par rapport à ce qui est en base
@@ -254,7 +274,9 @@ Deno.serve(async (req) => {
         changes: {
           new_brevets_inserted: newBrevetsCount,
           existing_brevets_updated: updatedBrevetsCount,
-          total_upserted: brevetsToUpsert.length
+          total_upserted: brevetsToUpsert.length,
+          deleted_brevets: deletedCount,
+          deleted_brevet_ids: deletedIds
         },
         geocoding: {
           brevets_requiring_geocoding: brevetsToGeocode.length,
