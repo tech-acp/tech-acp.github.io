@@ -193,7 +193,7 @@ function App() {
           'circle-opacity': [
             'case',
             ['boolean', ['get', 'all_past'], false],
-            0.3, // Opacité pour les points où tous les brevets sont passés
+            0.1, // Opacité pour les points où tous les brevets sont passés
             1    // Opacité normale
           ]
         }
