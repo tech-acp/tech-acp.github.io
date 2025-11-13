@@ -85,10 +85,16 @@ Deno.serve(async (req) => {
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
     }
 
-    const apiBrevets = await response.json();
-    console.log(`🟢 Fetched ${apiBrevets.length} brevets from API`);
+    const allApiBrevets = await response.json();
+    console.log(`🟢 Fetched ${allApiBrevets.length} total brevets from API`);
 
-    // 2. Extraire et upsert les clubs
+    // 2. Filtrer les brevets : exclure ceux avec statut "Annule"
+    const apiBrevets = allApiBrevets.filter((brevet: any) => brevet.statut !== 'Annule');
+    const cancelledBrevets = allApiBrevets.filter((brevet: any) => brevet.statut === 'Annule');
+
+    console.log(`🟢 Filtered ${apiBrevets.length} valid brevets (excluded ${cancelledBrevets.length} cancelled brevets)`);
+
+    // 3. Extraire et upsert les clubs
     const clubsMap = new Map();
     apiBrevets.forEach((brevet: any) => {
       if (brevet.codeClub && !clubsMap.has(brevet.codeClub)) {
@@ -116,7 +122,7 @@ Deno.serve(async (req) => {
       console.log(`🟢 Upserted ${clubs.length} clubs`);
     }
 
-    // 3. Récupérer les brevets existants pour identifier ceux qui nécessitent un géocodage
+    // 4. Récupérer les brevets existants pour identifier ceux qui nécessitent un géocodage
     const { data: existingBrevets, error: fetchError } = await supabase
       .from('brevets')
       .select('id, latitude, longitude, ville_depart, departement, pays');
@@ -131,7 +137,7 @@ Deno.serve(async (req) => {
     );
     console.log(`🟢 Found ${existingBrevets?.length || 0} existing brevets in database`);
 
-    // 4. Préparer tous les brevets pour upsert (sans toucher aux coordonnées)
+    // 5. Préparer tous les brevets pour upsert (sans toucher aux coordonnées)
     const brevetsToUpsert = apiBrevets.map((apiBrevet: any) => ({
       id: apiBrevet.id,
       club_id: apiBrevet.codeClub || null,
@@ -150,7 +156,7 @@ Deno.serve(async (req) => {
       pays: apiBrevet.pays || null
     }));
 
-    // 5. Upsert tous les brevets (sans modifier les coordonnées existantes)
+    // 6. Upsert tous les brevets valides (sans modifier les coordonnées existantes)
     const { error: upsertError } = await supabase
       .from('brevets')
       .upsert(brevetsToUpsert, { onConflict: 'id' });
@@ -161,27 +167,44 @@ Deno.serve(async (req) => {
     }
     console.log(`🟢 Upserted ${brevetsToUpsert.length} brevets (coordinates preserved)`);
 
-    // 6. Supprimer les brevets qui n'existent plus dans l'API
-    const apiBrevetIds = apiBrevets.map((b: any) => b.id);
-    const { data: deletedBrevets, error: deleteError } = await supabase
-      .from('brevets')
-      .delete()
-      .not('id', 'in', `(${apiBrevetIds.join(',')})`)
-      .select('id');
+    // 7. Supprimer les brevets obsolètes ET les brevets annulés
+    const validApiBrevetIds = apiBrevets.map((b: any) => b.id);
+    const cancelledBrevetIds = cancelledBrevets.map((b: any) => b.id);
 
-    if (deleteError) {
-      console.error('🔴 Error deleting obsolete brevets:', deleteError);
-      throw new Error(`Failed to delete obsolete brevets: ${deleteError.message}`);
+    let deletedCount = 0;
+    let deletedIds: any[] = [];
+    let deletedCancelledCount = 0;
+    let deletedObsoleteCount = 0;
+
+    if (validApiBrevetIds.length > 0) {
+      // Supprimer les brevets qui ne sont plus valides (obsolètes ou annulés)
+      const { data: deletedBrevets, error: deleteError } = await supabase
+        .from('brevets')
+        .delete()
+        .not('id', 'in', `(${validApiBrevetIds.join(',')})`)
+        .select('id');
+
+      if (deleteError) {
+        console.error('🔴 Error deleting obsolete/cancelled brevets:', deleteError);
+        throw new Error(`Failed to delete obsolete/cancelled brevets: ${deleteError.message}`);
+      }
+
+      deletedCount = deletedBrevets?.length || 0;
+      deletedIds = deletedBrevets?.map(b => b.id) || [];
+
+      // Identifier quels brevets supprimés étaient annulés
+      deletedCancelledCount = deletedIds.filter(id => cancelledBrevetIds.includes(id)).length;
+      deletedObsoleteCount = deletedCount - deletedCancelledCount;
+
+      console.log(`🟢 Deleted ${deletedCount} brevets from database:`);
+      console.log(`   - ${deletedObsoleteCount} obsolete brevets (no longer in API)`);
+      console.log(`   - ${deletedCancelledCount} cancelled brevets (statut=Annule)`);
+      if (deletedCount > 0) {
+        console.log(`   Deleted IDs: ${deletedIds.join(', ')}`);
+      }
     }
 
-    const deletedCount = deletedBrevets?.length || 0;
-    const deletedIds = deletedBrevets?.map(b => b.id) || [];
-    console.log(`🟢 Deleted ${deletedCount} obsolete brevets from database`);
-    if (deletedCount > 0) {
-      console.log(`   Deleted IDs: ${deletedIds.join(', ')}`);
-    }
-
-    // 7. Identifier les brevets nécessitant un géocodage
+    // 8. Identifier les brevets nécessitant un géocodage
     // Géocoder UNIQUEMENT si:
     // - Les coordonnées (latitude/longitude) ne sont pas renseignées dans la base
     // - OU la ville/département/pays a changé par rapport à ce qui est en base
@@ -212,7 +235,7 @@ Deno.serve(async (req) => {
 
     console.log(`🔵 Starting geocoding for ${brevetsToGeocode.length} brevets...`);
 
-    // 7. Géocoder les brevets nécessaires
+    // 9. Géocoder les brevets nécessaires
     const RATE_LIMIT_MS = 1200; // 1.2 secondes entre chaque requête
     let geocoded = 0;
     let geocodeFailed = 0;
@@ -256,7 +279,7 @@ Deno.serve(async (req) => {
 
     console.log(`🟢 Geocoding complete: ${geocoded} success, ${geocodeFailed} failed`);
 
-    // 8. Retourner un rapport de synchronisation détaillé
+    // 10. Retourner un rapport de synchronisation détaillé
     const newBrevetsCount = apiBrevets.filter((b: any) => !existingBrevetsMap.has(b.id)).length;
     const updatedBrevetsCount = brevetsToUpsert.length - newBrevetsCount;
 
@@ -265,7 +288,9 @@ Deno.serve(async (req) => {
       timestamp: new Date().toISOString(),
       stats: {
         api: {
-          total_brevets_fetched: apiBrevets.length,
+          total_brevets_fetched: allApiBrevets.length,
+          valid_brevets_processed: apiBrevets.length,
+          cancelled_brevets_excluded: cancelledBrevets.length,
           total_clubs: clubs.length
         },
         database: {
@@ -275,7 +300,9 @@ Deno.serve(async (req) => {
           new_brevets_inserted: newBrevetsCount,
           existing_brevets_updated: updatedBrevetsCount,
           total_upserted: brevetsToUpsert.length,
-          deleted_brevets: deletedCount,
+          deleted_brevets_total: deletedCount,
+          deleted_obsolete_brevets: deletedObsoleteCount,
+          deleted_cancelled_brevets: deletedCancelledCount,
           deleted_brevet_ids: deletedIds
         },
         geocoding: {
@@ -285,7 +312,7 @@ Deno.serve(async (req) => {
           failed_geocode_ids: geocodeErrors
         }
       },
-      message: 'Coordinates preserved for existing brevets. Geocoding only performed when necessary (missing coordinates or location change).'
+      message: 'Successfully synchronized brevets. Cancelled brevets (statut=Annule) are excluded from creation and removed from database if they existed. Coordinates preserved for existing brevets. Geocoding only performed when necessary (missing coordinates or location change).'
     };
 
     return new Response(JSON.stringify(report, null, 2), {

@@ -56,3 +56,4 @@ ESLint configured for TypeScript with:
 - React Hooks rules (recommended-latest)
 - React Refresh for Vite
 - Custom rule: unused vars allowed if they match `^[A-Z_]` pattern
+- Le code de @supabase/functions/sync-brevets/index.ts doit toujours être tenu à jour
