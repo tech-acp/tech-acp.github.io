@@ -7,7 +7,7 @@ import { BrevetFilters } from './components/BrevetFilters'
 import { BrevetSidebar } from './components/BrevetSidebar'
 import { BrevetBottomSheet } from './components/BrevetBottomSheet'
 import { useIsMobile } from './hooks/useMediaQuery'
-import { Eye } from 'lucide-react'
+import { Eye, SlidersHorizontal } from 'lucide-react'
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -24,6 +24,7 @@ function App() {
   })
   const [loading, setLoading] = useState(true)
   const [allBrevetsForCounts, setAllBrevetsForCounts] = useState<Brevet[]>([])
+  const [showFilters, setShowFilters] = useState(!isMobile)
 
   // Récupérer tous les brevets pour les counts (une seule fois)
   useEffect(() => {
@@ -253,10 +254,23 @@ function App() {
         style={{ width: '100%', height: '100%' }}
       />
       
+      {/* Bouton flottant pour afficher les filtres (mobile uniquement) */}
+      {isMobile && !showFilters && (
+        <button
+          onClick={() => setShowFilters(true)}
+          className="absolute top-2 left-2 bg-white rounded-lg shadow-md p-3 z-10 hover:bg-gray-50 transition-colors"
+          aria-label="Afficher les filtres"
+        >
+          <SlidersHorizontal className="w-6 h-6 text-slate-700" />
+        </button>
+      )}
+
       <BrevetFilters
         filters={filters}
         onFiltersChange={setFilters}
         distanceCounts={distanceCounts}
+        isOpen={showFilters}
+        onToggle={() => setShowFilters(!showFilters)}
       />
 
       {isMobile ? (
