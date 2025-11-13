@@ -1,5 +1,6 @@
 import { Brevet, Club } from '../types/brevet'
 import { Calendar, MapPin, Mountain, User, Mail, Globe, Route, Flag, Check, ChevronDown } from 'lucide-react'
+import { isBrevetPast } from '../lib/utils'
 
 interface BrevetCardProps {
   brevet: Brevet
@@ -72,8 +73,13 @@ export function BrevetCard({
 
   const cardHoverEffect = isMobile ? '' : 'hover:shadow-md'
 
+  const isPast = isBrevetPast(brevet.date_brevet)
+
   return (
-    <div className={`border border-slate-200 rounded-2xl overflow-hidden shadow-sm ${cardHoverEffect} transition-shadow`}>
+    <div 
+      className={`border border-slate-200 rounded-2xl overflow-hidden shadow-sm ${cardHoverEffect} transition-shadow`}
+      style={{ opacity: isPast ? 0.3 : 1 }}
+    >
       {/* En-tête du brevet (toujours visible) */}
       <button
         onClick={onToggle}

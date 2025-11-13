@@ -8,6 +8,7 @@ import { BrevetSidebar } from './components/BrevetSidebar'
 import { BrevetBottomSheet } from './components/BrevetBottomSheet'
 import { useIsMobile } from './hooks/useMediaQuery'
 import { Eye, SlidersHorizontal } from 'lucide-react'
+import { isBrevetPast } from './lib/utils'
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -115,23 +116,48 @@ function App() {
     function addMarkersToMap() {
       if (!map.current) return
 
+      // Calculer pour chaque point si TOUS les brevets à ce point sont passés
+      const locationStatus = new Map<string, boolean>()
+      
+      brevets.forEach(brevet => {
+        if (brevet.latitude === null || brevet.longitude === null) return
+        
+        const key = `${brevet.latitude},${brevet.longitude}`
+        
+        // Si la clé n'existe pas encore, initialiser à true
+        if (!locationStatus.has(key)) {
+          locationStatus.set(key, true)
+        }
+        
+        // Si au moins un brevet n'est pas passé, le point ne doit pas être transparent
+        if (!isBrevetPast(brevet.date_brevet)) {
+          locationStatus.set(key, false)
+        }
+      })
+
       // Créer les données GeoJSON (sans l'état isSelected)
       const geojsonData: GeoJSON.FeatureCollection = {
         type: 'FeatureCollection',
-        features: brevets.map(brevet => ({
-          type: 'Feature',
-          id: brevet.id, // Important pour setFeatureState
-          geometry: {
-            type: 'Point',
-            coordinates: [brevet.longitude!, brevet.latitude!]
-          },
-          properties: {
-            id: brevet.id,
-            nom_brm: brevet.nom_brm,
-            distance_brevet: brevet.distance_brevet,
-            ville_depart: brevet.ville_depart
+        features: brevets.map(brevet => {
+          const key = `${brevet.latitude},${brevet.longitude}`
+          const allPast = locationStatus.get(key) || false
+          
+          return {
+            type: 'Feature',
+            id: brevet.id, // Important pour setFeatureState
+            geometry: {
+              type: 'Point',
+              coordinates: [brevet.longitude!, brevet.latitude!]
+            },
+            properties: {
+              id: brevet.id,
+              nom_brm: brevet.nom_brm,
+              distance_brevet: brevet.distance_brevet,
+              ville_depart: brevet.ville_depart,
+              all_past: allPast
+            }
           }
-        }))
+        })
       }
 
       // Ajouter la source avec promoteId pour utiliser feature-state
@@ -163,7 +189,13 @@ function App() {
           ],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#ffffff',
-          'circle-opacity': 1
+          // Opacité réduite si tous les brevets du point sont passés
+          'circle-opacity': [
+            'case',
+            ['boolean', ['get', 'all_past'], false],
+            0.3, // Opacité pour les points où tous les brevets sont passés
+            1    // Opacité normale
+          ]
         }
       })
 
