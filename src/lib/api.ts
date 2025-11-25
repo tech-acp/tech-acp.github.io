@@ -93,3 +93,55 @@ export async function fetchBrevets(params: FetchBrevetsParams = {}): Promise<Bre
     throw error
   }
 }
+
+// Fonction pour récupérer TOUS les brevets (y compris sans coordonnées) pour la page admin
+export async function fetchAllBrevets(): Promise<Brevet[]> {
+  console.log('🔵 Fetching ALL BRMs from Supabase (including without coordinates)')
+
+  try {
+    const PAGE_SIZE = 1000
+    let allBrevets: Brevet[] = []
+    let page = 0
+    let hasMore = true
+
+    while (hasMore) {
+      const from = page * PAGE_SIZE
+      const to = from + PAGE_SIZE - 1
+
+      let query = supabase
+        .from('brevets')
+        .select(`
+          *,
+          club:clubs(*)
+        `)
+        .range(from, to)
+        .order('date_brevet', { ascending: true })
+
+      const { data, error } = await query
+
+      if (error) {
+        console.error('🔴 Supabase error:', error)
+        throw error
+      }
+
+      const brevets = (data || []) as Brevet[]
+      allBrevets = [...allBrevets, ...brevets]
+
+      console.log(`🟢 Fetched page ${page + 1}: ${brevets.length} brevets (total: ${allBrevets.length})`)
+
+      // Si on a récupéré moins de PAGE_SIZE résultats, c'est la dernière page
+      hasMore = brevets.length === PAGE_SIZE
+      page++
+    }
+
+    console.log('🟢 Supabase returned all brevets:', {
+      count: allBrevets.length,
+      pages: page
+    })
+
+    return allBrevets
+  } catch (error) {
+    console.error('🔴 Error fetching all brevets from Supabase:', error)
+    throw error
+  }
+}
