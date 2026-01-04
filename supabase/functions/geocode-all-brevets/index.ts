@@ -8,11 +8,22 @@ const NOMINATIM_CONFIG = {
     rateLimit: 1000,
     maxRetries: 3
 };
+// Configuration pour l'auto-invocation récursive
+const MAX_RECURSION_DEPTH = 100; // Max 100 itérations = 3000 brevets max
 async function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 async function geocodeAddress(city, department, country) {
-    const searchQuery = `${city}, ${department}, ${country}`;
+    // Construire la requête avec uniquement les parties non-nulles
+    const addressParts = [];
+    if (city && city !== 'Pas encore déterminée') addressParts.push(city);
+    if (department) addressParts.push(department);
+    if (country) addressParts.push(country);
+    if (addressParts.length === 0) {
+        console.warn('No address information available for geocoding');
+        return null;
+    }
+    const searchQuery = addressParts.join(', ');
     const encodedQuery = encodeURIComponent(searchQuery);
     for (let attempt = 1; attempt <= NOMINATIM_CONFIG.maxRetries; attempt++) {
         try {
@@ -65,12 +76,14 @@ Deno.serve(async (req) => {
         console.log('🔵 Starting geocode-all-brevets function');
         // Parse query params
         const url = new URL(req.url);
-        const limit = parseInt(url.searchParams.get('limit') || '50');
+        const limit = parseInt(url.searchParams.get('limit') || '30');
         const year = url.searchParams.get('year');
+        const depth = parseInt(url.searchParams.get('depth') || '1');
+        console.log(`🔵 Batch depth: ${depth}/${MAX_RECURSION_DEPTH}, limit: ${limit}`);
         // Initialize Supabase client
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        // Get brevets without coordinates but with valid address
-        let query = supabase.from('brevets').select('id, ville_depart, departement, pays').is('latitude', null).not('ville_depart', 'is', null).not('departement', 'is', null).not('pays', 'is', null).limit(limit);
+        // Get brevets without coordinates, with at least ville_depart, and not yet tried
+        let query = supabase.from('brevets').select('id, ville_depart, departement, pays').is('latitude', null).is('last_geocoding_try', null).not('ville_depart', 'is', null).neq('ville_depart', 'Pas encore déterminée').limit(limit);
         if (year) {
             const yearStart = `${year}-01-01`;
             const yearEnd = `${year}-12-31`;
@@ -81,13 +94,17 @@ Deno.serve(async (req) => {
             throw new Error(`Failed to fetch brevets: ${fetchError.message}`);
         }
         if (!brevets || brevets.length === 0) {
+            console.log('🟢 No brevets to geocode - all done!');
             return new Response(JSON.stringify({
                 success: true,
                 message: 'No brevets to geocode',
                 stats: {
-                    total: 0,
+                    batch_depth: depth,
+                    processed_in_batch: 0,
                     geocoded: 0,
-                    errors: 0
+                    errors: 0,
+                    remaining_to_geocode: 0,
+                    next_batch_triggered: false
                 }
             }), {
                 headers: {
@@ -100,13 +117,16 @@ Deno.serve(async (req) => {
         let geocodedCount = 0;
         let errorCount = 0;
         const errorSamples = [];
+        const now = new Date().toISOString();
         for (const brevet of brevets) {
             try {
                 const coords = await geocodeAddress(brevet.ville_depart, brevet.departement, brevet.pays);
                 if (coords) {
+                    // Succès : mettre à jour les coordonnées + last_geocoding_try
                     const { error: updateError } = await supabase.from('brevets').update({
                         latitude: coords.latitude,
-                        longitude: coords.longitude
+                        longitude: coords.longitude,
+                        last_geocoding_try: now
                     }).eq('id', brevet.id);
                     if (updateError) {
                         console.error(`Error updating brevet ${brevet.id}:`, updateError);
@@ -119,12 +139,20 @@ Deno.serve(async (req) => {
                         console.log(`✅ Geocoded brevet ${brevet.id}`);
                     }
                 } else {
+                    // Échec : marquer last_geocoding_try pour ne pas réessayer
+                    await supabase.from('brevets').update({
+                        last_geocoding_try: now
+                    }).eq('id', brevet.id);
                     errorCount++;
                     if (errorSamples.length < 3) {
                         errorSamples.push(`Brevet ${brevet.id}: No coordinates found for ${brevet.ville_depart}, ${brevet.departement}`);
                     }
                 }
             } catch (error) {
+                // Erreur : marquer last_geocoding_try pour ne pas réessayer
+                await supabase.from('brevets').update({
+                    last_geocoding_try: now
+                }).eq('id', brevet.id);
                 console.error(`Error processing brevet ${brevet.id}:`, error);
                 errorCount++;
                 if (errorSamples.length < 3) {
@@ -132,17 +160,45 @@ Deno.serve(async (req) => {
                 }
             }
         }
+        // Vérifier s'il reste des brevets à géocoder (sans coordonnées ET jamais essayé)
+        const { count: remainingCount } = await supabase
+            .from('brevets')
+            .select('id', { count: 'exact', head: true })
+            .is('latitude', null)
+            .is('last_geocoding_try', null)
+            .not('ville_depart', 'is', null)
+            .neq('ville_depart', 'Pas encore déterminée');
+        const remaining = remainingCount || 0;
+        let nextBatchTriggered = false;
+        // Auto-invocation récursive si nécessaire
+        if (remaining > 0 && depth < MAX_RECURSION_DEPTH) {
+            const nextUrl = `${SUPABASE_URL}/functions/v1/geocode-all-brevets?limit=${limit}&depth=${depth + 1}`;
+            console.log(`🔵 Triggering next batch (depth ${depth + 1}), ${remaining} brevets remaining...`);
+            fetch(nextUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            }).catch(err => console.error('🔴 Failed to trigger next batch:', err));
+            nextBatchTriggered = true;
+        } else if (remaining > 0) {
+            console.log(`⚠️ Max recursion depth reached (${MAX_RECURSION_DEPTH}), ${remaining} brevets still remaining`);
+        }
         const result = {
             success: true,
             message: `Geocoded ${geocodedCount} out of ${brevets.length} brevets`,
             stats: {
-                total: brevets.length,
+                batch_depth: depth,
+                processed_in_batch: brevets.length,
                 geocoded: geocodedCount,
-                errors: errorCount
+                errors: errorCount,
+                remaining_to_geocode: remaining,
+                next_batch_triggered: nextBatchTriggered
             },
             errorSamples: errorSamples.length > 0 ? errorSamples : undefined
         };
-        console.log('🟢 Geocoding completed:', result);
+        console.log('🟢 Geocoding batch completed:', result);
         return new Response(JSON.stringify(result), {
             headers: {
                 'Content-Type': 'application/json',

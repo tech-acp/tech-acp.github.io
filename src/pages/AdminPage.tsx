@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { fetchAllBrevets } from '../lib/api'
+import { supabase } from '../lib/supabase'
 import { Brevet } from '../types/brevet'
-import { ArrowUpDown, Filter, Home } from 'lucide-react'
+import { ArrowUpDown, Filter, Home, RefreshCw, Search, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 type SortDirection = 'asc' | 'desc' | null
@@ -18,6 +19,10 @@ export function AdminPage() {
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const [columnFilters, setColumnFilters] = useState<ColumnFilter>({})
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<any>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     const fetchData = async () => {
@@ -35,9 +40,32 @@ export function AdminPage() {
     fetchData()
   }, [])
 
-  // Appliquer les filtres et le tri
+  // Appliquer les filtres, la recherche et le tri
   useEffect(() => {
     let result = [...brevets]
+
+    // Appliquer la recherche textuelle
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim()
+      result = result.filter(brevet => {
+        const searchableFields = [
+          brevet.id?.toString(),
+          brevet.nom_brm,
+          brevet.ville_depart,
+          brevet.departement,
+          brevet.region,
+          brevet.nom_organisateur,
+          brevet.mail_organisateur,
+          brevet.club?.nom_club,
+          brevet.club?.pays,
+          brevet.distance_brevet?.toString(),
+          brevet.date_brevet,
+        ]
+        return searchableFields.some(field =>
+          field?.toLowerCase().includes(query)
+        )
+      })
+    }
 
     // Appliquer les filtres de colonnes vides
     Object.entries(columnFilters).forEach(([field, showEmpty]) => {
@@ -93,7 +121,7 @@ export function AdminPage() {
     }
 
     setFilteredBrevets(result)
-  }, [brevets, sortField, sortDirection, columnFilters])
+  }, [brevets, sortField, sortDirection, columnFilters, searchQuery])
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -115,6 +143,28 @@ export function AdminPage() {
       ...prev,
       [field]: !prev[field]
     }))
+  }
+
+  const handleSync = async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    setSyncError(null)
+
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-brevets')
+
+      if (error) throw error
+
+      setSyncResult(data)
+      // Rafraîchir la liste des brevets après sync
+      const brevetsData = await fetchAllBrevets()
+      setBrevets(brevetsData)
+      setFilteredBrevets(brevetsData)
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Erreur inconnue')
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const columns: { key: SortField; label: string; render?: (brevet: Brevet) => React.ReactNode }[] = [
@@ -154,14 +204,108 @@ export function AdminPage() {
               {filteredBrevets.length} brevet{filteredBrevets.length > 1 ? 's' : ''} affiché{filteredBrevets.length > 1 ? 's' : ''} sur {brevets.length} total
             </p>
           </div>
-          <Link
-            to="/"
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Home className="w-5 h-5" />
-            Retour à la carte
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Synchronisation...' : 'Synchroniser'}
+            </button>
+            <Link
+              to="/"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Home className="w-5 h-5" />
+              Retour à la carte
+            </Link>
+          </div>
         </div>
+
+        {/* Barre de recherche */}
+        <div className="mb-6">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Rechercher par nom, ville, club, organisateur..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Panneau de résultats de synchronisation */}
+        {(syncResult || syncError) && (
+          <div className={`mb-6 p-4 rounded-lg ${syncError ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
+            <div className="flex justify-between items-start">
+              <h3 className="font-semibold text-gray-900">
+                {syncError ? 'Erreur de synchronisation' : 'Synchronisation réussie'}
+              </h3>
+              <button
+                onClick={() => { setSyncResult(null); setSyncError(null) }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {syncError ? (
+              <p className="text-red-600 mt-2">{syncError}</p>
+            ) : syncResult && (
+              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div className="bg-white p-3 rounded border">
+                  <p className="text-gray-500">API - Total récupéré</p>
+                  <p className="text-xl font-bold">{syncResult.stats?.api?.total_brevets_fetched ?? '-'}</p>
+                </div>
+                <div className="bg-white p-3 rounded border">
+                  <p className="text-gray-500">Brevets valides</p>
+                  <p className="text-xl font-bold">{syncResult.stats?.api?.valid_brevets_processed ?? '-'}</p>
+                </div>
+                <div className="bg-white p-3 rounded border">
+                  <p className="text-gray-500">Annulés exclus</p>
+                  <p className="text-xl font-bold text-orange-600">{syncResult.stats?.api?.cancelled_brevets_excluded ?? '-'}</p>
+                </div>
+                <div className="bg-white p-3 rounded border">
+                  <p className="text-gray-500">Clubs</p>
+                  <p className="text-xl font-bold">{syncResult.stats?.api?.total_clubs ?? '-'}</p>
+                </div>
+                <div className="bg-white p-3 rounded border">
+                  <p className="text-gray-500">Nouveaux brevets</p>
+                  <p className="text-xl font-bold text-green-600">{syncResult.stats?.changes?.new_brevets_inserted ?? '-'}</p>
+                </div>
+                <div className="bg-white p-3 rounded border">
+                  <p className="text-gray-500">Modifiés</p>
+                  <p className="text-xl font-bold text-blue-600">{syncResult.stats?.changes?.existing_brevets_updated ?? '-'}</p>
+                </div>
+                <div className="bg-white p-3 rounded border">
+                  <p className="text-gray-500">Inchangés</p>
+                  <p className="text-xl font-bold text-gray-400">{syncResult.stats?.changes?.unchanged_brevets ?? '-'}</p>
+                </div>
+                <div className="bg-white p-3 rounded border">
+                  <p className="text-gray-500">Supprimés</p>
+                  <p className="text-xl font-bold text-red-600">{syncResult.stats?.changes?.deleted_brevets_total ?? '-'}</p>
+                </div>
+                {syncResult.stats?.geocoding?.geocoding_triggered && (
+                  <div className="bg-white p-3 rounded border">
+                    <p className="text-gray-500">À géocoder</p>
+                    <p className="text-xl font-bold text-purple-600">{syncResult.stats?.geocoding?.new_brevets_to_geocode ?? '-'}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="overflow-x-auto">

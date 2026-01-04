@@ -160,6 +160,7 @@ export async function fetchAllBrevets(): Promise<Brevet[]> {
         `)
         .range(from, to)
         .order('date_brevet', { ascending: true })
+        .order('id', { ascending: true })
 
       const { data, error } = await query
 

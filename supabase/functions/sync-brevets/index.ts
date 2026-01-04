@@ -1,52 +1,53 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-// Fonction utilitaire pour attendre (rate limiting)
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 // Fonction pour convertir le format de date DD/MM/YYYY → YYYY-MM-DD
-function convertDateFormat(ddmmyyyy) {
+function convertDateFormat(ddmmyyyy: string): string {
   const [day, month, year] = ddmmyyyy.split('/');
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 }
-// Fonction de géocodage via Nominatim
-async function geocodeAddress(ville, departement, pays) {
-  const addressParts = [];
-  if (ville && ville !== 'Pas encore déterminée') addressParts.push(ville);
-  if (departement) addressParts.push(departement);
-  if (pays) addressParts.push(pays);
-  if (addressParts.length === 0) {
-    console.log('⚠️ No address information available for geocoding');
-    return null;
-  }
-  const query = addressParts.join(', ');
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'BRM-Map-App/1.0 (Supabase Edge Function; contact: support@brm-map.com)'
-      }
-    });
-    if (!response.ok) {
-      console.error(`🔴 Nominatim error: ${response.status} ${response.statusText}`);
-      return null;
+
+// Fonction pour comparer deux brevets et détecter les changements
+function hasBrevetChanged(existing: any, newData: any): boolean {
+  const fieldsToCompare = [
+    'club_id',
+    'nom_organisateur',
+    'mail_organisateur',
+    'distance_brevet',
+    'date_brevet',
+    'denivele',
+    'eligible_r10000',
+    'ville_depart',
+    'departement',
+    'region',
+    'lien_itineraire_brm',
+    'nom_brm',
+    'pays',
+    'acces_homologations'
+  ];
+
+  for (const field of fieldsToCompare) {
+    const existingVal = existing[field] ?? null;
+    const newVal = newData[field] ?? null;
+
+    if (existingVal !== newVal) {
+      return true;
     }
-    const data = await response.json();
-    if (data.length === 0) {
-      console.log(`⚠️ No results found for: ${query}`);
-      return null;
-    }
-    const result = data[0];
-    return {
-      lat: parseFloat(result.lat),
-      lon: parseFloat(result.lon)
-    };
-  } catch (error) {
-    console.error(`🔴 Geocoding error for "${query}":`, error);
-    return null;
   }
+  return false;
 }
-Deno.serve(async (req) => {
+
+Deno.serve(async (req: Request) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   try {
     // Créer le client Supabase avec la service_role key pour bypasser RLS
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -99,17 +100,49 @@ Deno.serve(async (req) => {
       }
       console.log(`🟢 Upserted ${clubs.length} clubs`);
     }
-    // 4. Récupérer les brevets existants pour identifier ceux qui nécessitent un géocodage
-    const { data: existingBrevets, error: fetchError } = await supabase.from('brevets').select('id, latitude, longitude, ville_depart, departement, pays, gpx_file_path, gpx_uploaded_at, gpx_file_size');
-    if (fetchError) {
-      console.error('🔴 Error fetching existing brevets:', fetchError);
-      throw new Error(`Failed to fetch brevets: ${fetchError.message}`);
+    // 4. Récupérer TOUS les brevets existants avec pagination (Supabase limite à 1000 par requête)
+    // On récupère toutes les colonnes comparables pour détecter les vrais changements
+    const existingBrevetsMap = new Map();
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data: page, error: fetchError } = await supabase
+        .from('brevets')
+        .select(`
+          id,
+          club_id,
+          nom_organisateur,
+          mail_organisateur,
+          distance_brevet,
+          date_brevet,
+          denivele,
+          eligible_r10000,
+          ville_depart,
+          departement,
+          region,
+          lien_itineraire_brm,
+          nom_brm,
+          pays,
+          acces_homologations,
+          gpx_file_path,
+          gpx_uploaded_at,
+          gpx_file_size
+        `)
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (fetchError) {
+        console.error('🔴 Error fetching existing brevets:', fetchError);
+        throw new Error(`Failed to fetch brevets: ${fetchError.message}`);
+      }
+      if (page && page.length > 0) {
+        page.forEach((b) => existingBrevetsMap.set(b.id, b));
+        offset += page.length;
+        hasMore = page.length === PAGE_SIZE;
+      } else {
+        hasMore = false;
+      }
     }
-    const existingBrevetsMap = new Map(existingBrevets?.map((b) => [
-      b.id,
-      b
-    ]) || []);
-    console.log(`🟢 Found ${existingBrevets?.length || 0} existing brevets in database`);
+    console.log(`🟢 Found ${existingBrevetsMap.size} existing brevets in database`);
     // 5. Préparer tous les brevets pour upsert (sans toucher aux coordonnées et données GPX)
     const brevetsToUpsert = apiBrevets.map((apiBrevet) => {
       const existingBrevet = existingBrevetsMap.get(apiBrevet.id);
@@ -145,20 +178,14 @@ Deno.serve(async (req) => {
     }
     console.log(`🟢 Upserted ${brevetsToUpsert.length} brevets (coordinates and GPX data preserved)`);
     // 7. Supprimer les brevets obsolètes ET les brevets annulés
-    const validApiBrevetIds = apiBrevets.map((b) => b.id);
+    const validApiBrevetIds = new Set(apiBrevets.map((b) => b.id));
     const cancelledBrevetIds = cancelledBrevets.map((b) => b.id);
     let deletedCount = 0;
     let deletedIds = [];
     let deletedCancelledCount = 0;
     let deletedObsoleteCount = 0;
-    // Récupérer tous les IDs en base
-    const { data: allBrevetIds, error: fetchIdsError } = await supabase.from('brevets').select('id');
-    if (fetchIdsError) {
-      console.error('🔴 Error fetching brevet IDs:', fetchIdsError);
-      throw new Error(`Failed to fetch brevet IDs: ${fetchIdsError.message}`);
-    }
-    // Identifier les IDs à supprimer (ceux qui ne sont plus dans l'API)
-    const idsToDelete = (allBrevetIds || []).map((b) => b.id).filter((id) => !validApiBrevetIds.includes(id));
+    // Utiliser existingBrevetsMap (déjà récupéré avec pagination) pour identifier les IDs à supprimer
+    const idsToDelete = Array.from(existingBrevetsMap.keys()).filter((id) => !validApiBrevetIds.has(id));
     if (idsToDelete.length > 0) {
       // Supprimer par batch (Supabase accepte les arrays directement)
       const { data: deletedBrevets, error: deleteError } = await supabase.from('brevets').delete().in('id', idsToDelete).select('id');
@@ -178,60 +205,37 @@ Deno.serve(async (req) => {
     } else {
       console.log('🟢 No obsolete brevets to delete');
     }
-    // 8. Identifier les brevets nécessitant un géocodage
-    const brevetsToGeocode = [];
-    apiBrevets.forEach((apiBrevet) => {
-      const existingBrevet = existingBrevetsMap.get(apiBrevet.id);
-      if (!existingBrevet) {
-        // Nouveau brevet
-        if (apiBrevet.ville) {
-          brevetsToGeocode.push(apiBrevet);
-        }
-      } else {
-        // Brevet existant
-        const hasCoordinates = existingBrevet.latitude && existingBrevet.longitude;
-        const locationChanged = existingBrevet.ville_depart !== apiBrevet.ville || existingBrevet.departement !== apiBrevet.departement || existingBrevet.pays !== apiBrevet.pays;
-        // Géocoder si pas de coordonnées OU si la localisation a changé
-        if ((!hasCoordinates || locationChanged) && apiBrevet.ville) {
-          brevetsToGeocode.push(apiBrevet);
-        }
-      }
-    });
-    console.log(`🔵 Starting geocoding for ${brevetsToGeocode.length} brevets...`);
-    // 9. Géocoder les brevets nécessaires
-    const RATE_LIMIT_MS = 1200; // 1.2 secondes entre chaque requête
-    let geocoded = 0;
-    let geocodeFailed = 0;
-    const geocodeErrors = [];
-    for (let i = 0; i < brevetsToGeocode.length; i++) {
-      const apiBrevet = brevetsToGeocode[i];
-      const coords = await geocodeAddress(apiBrevet.ville, apiBrevet.departement, apiBrevet.pays);
-      if (coords) {
-        const { error: geoUpdateError } = await supabase.from('brevets').update({
-          latitude: coords.lat,
-          longitude: coords.lon
-        }).eq('id', apiBrevet.id);
-        if (geoUpdateError) {
-          console.error(`🔴 Error updating coordinates for brevet ${apiBrevet.id}:`, geoUpdateError);
-          geocodeFailed++;
-          geocodeErrors.push(apiBrevet.id);
-        } else {
-          console.log(`✅ Geocoded brevet ${apiBrevet.id}: ${apiBrevet.ville} → [${coords.lat}, ${coords.lon}]`);
-          geocoded++;
-        }
-      } else {
-        geocodeFailed++;
-        geocodeErrors.push(apiBrevet.id);
-      }
-      // Rate limiting: attendre avant la prochaine requête
-      if (i < brevetsToGeocode.length - 1) {
-        await sleep(RATE_LIMIT_MS);
+    // 8. Compter les brevets nécessitant un géocodage et les vrais changements
+    const newBrevetsCount = apiBrevets.filter((b) => !existingBrevetsMap.has(b.id)).length;
+    const newBrevetsWithCity = apiBrevets.filter((b) => !existingBrevetsMap.has(b.id) && b.ville).length;
+
+    // Compter les brevets réellement modifiés (comparaison champ par champ)
+    let actuallyUpdatedCount = 0;
+    for (const newBrevet of brevetsToUpsert) {
+      const existingBrevet = existingBrevetsMap.get(newBrevet.id);
+      if (existingBrevet && hasBrevetChanged(existingBrevet, newBrevet)) {
+        actuallyUpdatedCount++;
       }
     }
-    console.log(`🟢 Geocoding complete: ${geocoded} success, ${geocodeFailed} failed`);
+    const unchangedBrevetsCount = existingBrevetsMap.size - actuallyUpdatedCount - deletedCount;
+    console.log(`🟢 Changes detected: ${newBrevetsCount} new, ${actuallyUpdatedCount} updated, ${unchangedBrevetsCount} unchanged`);
+    // 9. Déclencher le géocodage en background via geocode-all-brevets (fire-and-forget)
+    let geocodingTriggered = false;
+    if (newBrevetsWithCity > 0) {
+      const geocodeUrl = `${supabaseUrl}/functions/v1/geocode-all-brevets?limit=30&depth=1`;
+      console.log(`🔵 Triggering geocoding for ${newBrevetsWithCity} new brevets...`);
+      fetch(geocodeUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${supabaseServiceKey}`,
+          'Content-Type': 'application/json'
+        }
+      }).catch(err => console.error('🔴 Failed to trigger geocoding:', err));
+      geocodingTriggered = true;
+    } else {
+      console.log('🟢 No new brevets to geocode');
+    }
     // 10. Retourner un rapport de synchronisation détaillé
-    const newBrevetsCount = apiBrevets.filter((b) => !existingBrevetsMap.has(b.id)).length;
-    const updatedBrevetsCount = brevetsToUpsert.length - newBrevetsCount;
     const report = {
       success: true,
       timestamp: new Date().toISOString(),
@@ -243,11 +247,12 @@ Deno.serve(async (req) => {
           total_clubs: clubs.length
         },
         database: {
-          existing_brevets_before_sync: existingBrevets?.length || 0
+          existing_brevets_before_sync: existingBrevetsMap.size
         },
         changes: {
           new_brevets_inserted: newBrevetsCount,
-          existing_brevets_updated: updatedBrevetsCount,
+          existing_brevets_updated: actuallyUpdatedCount,
+          unchanged_brevets: unchangedBrevetsCount,
           total_upserted: brevetsToUpsert.length,
           deleted_brevets_total: deletedCount,
           deleted_obsolete_brevets: deletedObsoleteCount,
@@ -255,16 +260,16 @@ Deno.serve(async (req) => {
           deleted_brevet_ids: deletedIds
         },
         geocoding: {
-          brevets_requiring_geocoding: brevetsToGeocode.length,
-          geocoded_success: geocoded,
-          geocoded_failed: geocodeFailed,
-          failed_geocode_ids: geocodeErrors
+          new_brevets_to_geocode: newBrevetsWithCity,
+          geocoding_triggered: geocodingTriggered,
+          note: geocodingTriggered ? 'Geocoding is running in background via geocode-all-brevets function' : 'No geocoding needed'
         }
       },
-      message: 'Successfully synchronized brevets. Cancelled brevets (statut=Annule) are excluded from creation and removed from database if they existed. Coordinates and GPX data preserved for existing brevets. Geocoding only performed when necessary (missing coordinates or location change).'
+      message: 'Successfully synchronized brevets. Cancelled brevets (statut=Annule) are excluded. GPX data preserved. Geocoding triggered separately for new brevets.'
     };
     return new Response(JSON.stringify(report, null, 2), {
       headers: {
+        ...corsHeaders,
         'Content-Type': 'application/json',
         'Connection': 'keep-alive'
       },
@@ -278,6 +283,7 @@ Deno.serve(async (req) => {
       timestamp: new Date().toISOString()
     }), {
       headers: {
+        ...corsHeaders,
         'Content-Type': 'application/json',
         'Connection': 'keep-alive'
       },
