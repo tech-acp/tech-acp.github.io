@@ -42,6 +42,21 @@ function hasBrevetChanged(existing: any, newData: any): boolean {
   return false;
 }
 
+// Fonction pour détecter si l'adresse a changé (nécessite re-géocodage)
+function hasAddressChanged(existing: any, newData: any): boolean {
+  const addressFields = ['ville_depart', 'departement', 'pays'];
+
+  for (const field of addressFields) {
+    const existingVal = existing[field] ?? null;
+    const newVal = newData[field] ?? null;
+
+    if (existingVal !== newVal) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -125,6 +140,8 @@ Deno.serve(async (req: Request) => {
           nom_brm,
           pays,
           acces_homologations,
+          latitude,
+          longitude,
           gpx_file_path,
           gpx_uploaded_at,
           gpx_file_size
@@ -207,23 +224,67 @@ Deno.serve(async (req: Request) => {
     }
     // 8. Compter les brevets nécessitant un géocodage et les vrais changements
     const newBrevetsCount = apiBrevets.filter((b) => !existingBrevetsMap.has(b.id)).length;
-    const newBrevetsWithCity = apiBrevets.filter((b) => !existingBrevetsMap.has(b.id) && b.ville).length;
 
     // Compter les brevets réellement modifiés (comparaison champ par champ)
     let actuallyUpdatedCount = 0;
+    const brevetsNeedingGeocode: number[] = [];
+
     for (const newBrevet of brevetsToUpsert) {
       const existingBrevet = existingBrevetsMap.get(newBrevet.id);
-      if (existingBrevet && hasBrevetChanged(existingBrevet, newBrevet)) {
-        actuallyUpdatedCount++;
+
+      if (!existingBrevet) {
+        // Nouveau brevet avec ville -> besoin de géocodage
+        if (newBrevet.ville_depart) {
+          brevetsNeedingGeocode.push(newBrevet.id);
+        }
+      } else {
+        // Brevet existant
+        if (hasBrevetChanged(existingBrevet, newBrevet)) {
+          actuallyUpdatedCount++;
+        }
+
+        // Cas 1: Brevet existant sans coordonnées
+        const hasNoCoordinates = existingBrevet.latitude === null || existingBrevet.longitude === null;
+
+        // Cas 2: L'adresse a changé -> besoin de re-géocodage
+        const addressChanged = hasAddressChanged(existingBrevet, newBrevet);
+
+        if ((hasNoCoordinates || addressChanged) && newBrevet.ville_depart) {
+          brevetsNeedingGeocode.push(newBrevet.id);
+        }
       }
     }
+
     const unchangedBrevetsCount = existingBrevetsMap.size - actuallyUpdatedCount - deletedCount;
     console.log(`🟢 Changes detected: ${newBrevetsCount} new, ${actuallyUpdatedCount} updated, ${unchangedBrevetsCount} unchanged`);
-    // 9. Déclencher le géocodage en background via geocode-all-brevets (fire-and-forget)
+    console.log(`🟢 Brevets needing geocoding: ${brevetsNeedingGeocode.length}`);
+
+    // 9. Réinitialiser les coordonnées des brevets dont l'adresse a changé
+    const brevetsWithAddressChange = brevetsToUpsert.filter(b => {
+      const existing = existingBrevetsMap.get(b.id);
+      return existing && hasAddressChanged(existing, b);
+    }).map(b => b.id);
+
+    if (brevetsWithAddressChange.length > 0) {
+      console.log(`🔵 Resetting coordinates for ${brevetsWithAddressChange.length} brevets with address changes...`);
+      const { error: resetError } = await supabase
+        .from('brevets')
+        .update({ latitude: null, longitude: null })
+        .in('id', brevetsWithAddressChange);
+
+      if (resetError) {
+        console.error('🔴 Error resetting coordinates:', resetError);
+      } else {
+        console.log(`🟢 Reset coordinates for ${brevetsWithAddressChange.length} brevets`);
+      }
+    }
+
+    // 10. Déclencher le géocodage en background via geocode-all-brevets (fire-and-forget)
     let geocodingTriggered = false;
-    if (newBrevetsWithCity > 0) {
-      const geocodeUrl = `${supabaseUrl}/functions/v1/geocode-all-brevets?limit=30&depth=1`;
-      console.log(`🔵 Triggering geocoding for ${newBrevetsWithCity} new brevets...`);
+    if (brevetsNeedingGeocode.length > 0) {
+      // Déclencher avec une limite plus élevée et plus de profondeur pour traiter tous les brevets
+      const geocodeUrl = `${supabaseUrl}/functions/v1/geocode-all-brevets?limit=50&depth=100`;
+      console.log(`🔵 Triggering geocoding for ${brevetsNeedingGeocode.length} brevets...`);
       fetch(geocodeUrl, {
         method: 'POST',
         headers: {
@@ -233,9 +294,9 @@ Deno.serve(async (req: Request) => {
       }).catch(err => console.error('🔴 Failed to trigger geocoding:', err));
       geocodingTriggered = true;
     } else {
-      console.log('🟢 No new brevets to geocode');
+      console.log('🟢 No brevets to geocode');
     }
-    // 10. Retourner un rapport de synchronisation détaillé
+    // 11. Retourner un rapport de synchronisation détaillé
     const report = {
       success: true,
       timestamp: new Date().toISOString(),
@@ -260,7 +321,8 @@ Deno.serve(async (req: Request) => {
           deleted_brevet_ids: deletedIds
         },
         geocoding: {
-          new_brevets_to_geocode: newBrevetsWithCity,
+          brevets_to_geocode: brevetsNeedingGeocode.length,
+          address_changes_reset: brevetsWithAddressChange.length,
           geocoding_triggered: geocodingTriggered,
           note: geocodingTriggered ? 'Geocoding is running in background via geocode-all-brevets function' : 'No geocoding needed'
         }

@@ -296,10 +296,10 @@ export function AdminPage() {
                   <p className="text-gray-500">Supprimés</p>
                   <p className="text-xl font-bold text-red-600">{syncResult.stats?.changes?.deleted_brevets_total ?? '-'}</p>
                 </div>
-                {syncResult.stats?.geocoding?.geocoding_triggered && (
+                {syncResult.stats?.geocoding?.brevets_to_geocode > 0 && (
                   <div className="bg-white p-3 rounded border">
                     <p className="text-gray-500">À géocoder</p>
-                    <p className="text-xl font-bold text-purple-600">{syncResult.stats?.geocoding?.new_brevets_to_geocode ?? '-'}</p>
+                    <p className="text-xl font-bold text-purple-600">{syncResult.stats?.geocoding?.brevets_to_geocode ?? '-'}</p>
                   </div>
                 )}
               </div>
