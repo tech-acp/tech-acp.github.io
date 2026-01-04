@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { fetchAllBrevets } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { Brevet } from '../types/brevet'
-import { ArrowUpDown, Filter, Home, MapPin, RefreshCw, Search, X } from 'lucide-react'
+import { ArrowUpDown, Check, Circle, Filter, Home, Loader2, MapPin, RefreshCw, Search, X, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 type SortDirection = 'asc' | 'desc' | null
@@ -12,6 +12,24 @@ interface ColumnFilter {
   [key: string]: boolean // true = afficher seulement les valeurs vides
 }
 
+type StepStatus = 'pending' | 'running' | 'success' | 'error'
+
+interface Step {
+  id: string
+  label: string
+  status: StepStatus
+  details?: string
+  stats?: Record<string, number | string>
+}
+
+interface GeocodingProgress {
+  batch: number
+  processed: number
+  geocoded: number
+  errors: number
+  remaining: number
+}
+
 export function AdminPage() {
   const [brevets, setBrevets] = useState<Brevet[]>([])
   const [filteredBrevets, setFilteredBrevets] = useState<Brevet[]>([])
@@ -19,13 +37,12 @@ export function AdminPage() {
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const [columnFilters, setColumnFilters] = useState<ColumnFilter>({})
-  const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState<any>(null)
-  const [syncError, setSyncError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [geocoding, setGeocoding] = useState(false)
-  const [geocodeResult, setGeocodeResult] = useState<any>(null)
-  const [geocodeError, setGeocodeError] = useState<string | null>(null)
+
+  // Sync workflow state
+  const [isRunning, setIsRunning] = useState(false)
+  const [steps, setSteps] = useState<Step[]>([])
+  const [geocodingProgress, setGeocodingProgress] = useState<GeocodingProgress | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -148,50 +165,244 @@ export function AdminPage() {
     }))
   }
 
-  const handleSync = async () => {
-    setSyncing(true)
-    setSyncResult(null)
-    setSyncError(null)
+  const updateStep = useCallback((stepId: string, updates: Partial<Step>) => {
+    setSteps(prev => prev.map(s => s.id === stepId ? { ...s, ...updates } : s))
+  }, [])
+
+  const runFullSync = async () => {
+    setIsRunning(true)
+    setGeocodingProgress(null)
+
+    // Initialize steps
+    const initialSteps: Step[] = [
+      { id: 'fetch-api', label: 'Récupération des données ACP', status: 'pending' },
+      { id: 'sync-db', label: 'Synchronisation base de données', status: 'pending' },
+      { id: 'geocoding', label: 'Géocodage des brevets', status: 'pending' },
+      { id: 'refresh', label: 'Rafraîchissement de la liste', status: 'pending' },
+    ]
+    setSteps(initialSteps)
 
     try {
-      const { data, error } = await supabase.functions.invoke('sync-brevets')
+      // Step 1: Fetch from ACP API + Sync DB (done together by sync-brevets)
+      updateStep('fetch-api', { status: 'running', details: 'Connexion à l\'API ACP...' })
 
-      if (error) throw error
+      const { data: syncData, error: syncError } = await supabase.functions.invoke('sync-brevets')
 
-      setSyncResult(data)
-      // Rafraîchir la liste des brevets après sync
+      if (syncError) throw syncError
+
+      // Update step 1 with results
+      updateStep('fetch-api', {
+        status: 'success',
+        details: `${syncData.stats?.api?.total_brevets_fetched} brevets récupérés`,
+        stats: {
+          'Total': syncData.stats?.api?.total_brevets_fetched,
+          'Valides': syncData.stats?.api?.valid_brevets_processed,
+          'Annulés': syncData.stats?.api?.cancelled_brevets_excluded,
+        }
+      })
+
+      // Step 2: Database sync results
+      updateStep('sync-db', {
+        status: 'success',
+        details: `${syncData.stats?.changes?.new_brevets_inserted} nouveaux, ${syncData.stats?.changes?.existing_brevets_updated} modifiés`,
+        stats: {
+          'Nouveaux': syncData.stats?.changes?.new_brevets_inserted,
+          'Modifiés': syncData.stats?.changes?.existing_brevets_updated,
+          'Inchangés': syncData.stats?.changes?.unchanged_brevets,
+          'Supprimés': syncData.stats?.changes?.deleted_brevets_total,
+          'Clubs': syncData.stats?.api?.total_clubs,
+        }
+      })
+
+      // Step 3: Geocoding
+      const brevetsToGeocode = syncData.stats?.geocoding?.brevets_to_geocode || 0
+
+      if (brevetsToGeocode > 0) {
+        updateStep('geocoding', {
+          status: 'running',
+          details: `${brevetsToGeocode} brevets à géocoder...`
+        })
+
+        // Poll for geocoding progress
+        let totalGeocoded = 0
+        let totalErrors = 0
+        let batchCount = 0
+        let remaining = brevetsToGeocode
+
+        while (remaining > 0 && batchCount < 100) {
+          batchCount++
+
+          const { data: geocodeData, error: geocodeError } = await supabase.functions.invoke('geocode-all-brevets', {
+            body: {}
+          })
+
+          if (geocodeError) {
+            updateStep('geocoding', {
+              status: 'error',
+              details: `Erreur: ${geocodeError.message}`
+            })
+            break
+          }
+
+          totalGeocoded += geocodeData.stats?.geocoded || 0
+          totalErrors += geocodeData.stats?.errors || 0
+          remaining = geocodeData.stats?.remaining_to_geocode || 0
+
+          setGeocodingProgress({
+            batch: batchCount,
+            processed: totalGeocoded + totalErrors,
+            geocoded: totalGeocoded,
+            errors: totalErrors,
+            remaining: remaining
+          })
+
+          updateStep('geocoding', {
+            status: 'running',
+            details: `Batch ${batchCount}: ${totalGeocoded} géocodés, ${remaining} restants...`,
+            stats: {
+              'Géocodés': totalGeocoded,
+              'Erreurs': totalErrors,
+              'Restants': remaining,
+            }
+          })
+
+          // Small delay between batches to avoid rate limiting
+          if (remaining > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
+        }
+
+        updateStep('geocoding', {
+          status: totalErrors > 0 && totalGeocoded === 0 ? 'error' : 'success',
+          details: `${totalGeocoded} géocodés, ${totalErrors} erreurs`,
+          stats: {
+            'Géocodés': totalGeocoded,
+            'Erreurs': totalErrors,
+            'Batches': batchCount,
+          }
+        })
+      } else {
+        updateStep('geocoding', {
+          status: 'success',
+          details: 'Aucun brevet à géocoder'
+        })
+      }
+
+      // Step 4: Refresh list
+      updateStep('refresh', { status: 'running', details: 'Chargement des données...' })
       const brevetsData = await fetchAllBrevets()
       setBrevets(brevetsData)
       setFilteredBrevets(brevetsData)
+      updateStep('refresh', {
+        status: 'success',
+        details: `${brevetsData.length} brevets chargés`
+      })
+
     } catch (err) {
-      setSyncError(err instanceof Error ? err.message : 'Erreur inconnue')
+      const errorMsg = err instanceof Error ? err.message : 'Erreur inconnue'
+      // Mark current running step as error
+      setSteps(prev => prev.map(s =>
+        s.status === 'running' ? { ...s, status: 'error', details: errorMsg } : s
+      ))
     } finally {
-      setSyncing(false)
+      setIsRunning(false)
     }
   }
 
-  const handleGeocode = async () => {
-    setGeocoding(true)
-    setGeocodeResult(null)
-    setGeocodeError(null)
+  const runGeocodeOnly = async () => {
+    setIsRunning(true)
+    setGeocodingProgress(null)
+
+    const initialSteps: Step[] = [
+      { id: 'geocoding', label: 'Géocodage des brevets', status: 'pending' },
+      { id: 'refresh', label: 'Rafraîchissement de la liste', status: 'pending' },
+    ]
+    setSteps(initialSteps)
 
     try {
-      const { data, error } = await supabase.functions.invoke('geocode-all-brevets', {
-        body: {}
-      })
+      updateStep('geocoding', { status: 'running', details: 'Recherche des brevets à géocoder...' })
 
-      if (error) throw error
+      let totalGeocoded = 0
+      let totalErrors = 0
+      let batchCount = 0
+      let remaining = 1 // Start with 1 to enter the loop
 
-      setGeocodeResult(data)
-      // Rafraîchir la liste des brevets après géocodage
+      while (remaining > 0 && batchCount < 100) {
+        batchCount++
+
+        const { data: geocodeData, error: geocodeError } = await supabase.functions.invoke('geocode-all-brevets', {
+          body: {}
+        })
+
+        if (geocodeError) {
+          updateStep('geocoding', { status: 'error', details: `Erreur: ${geocodeError.message}` })
+          break
+        }
+
+        if (batchCount === 1 && geocodeData.stats?.processed_in_batch === 0) {
+          updateStep('geocoding', { status: 'success', details: 'Aucun brevet à géocoder' })
+          break
+        }
+
+        totalGeocoded += geocodeData.stats?.geocoded || 0
+        totalErrors += geocodeData.stats?.errors || 0
+        remaining = geocodeData.stats?.remaining_to_geocode || 0
+
+        setGeocodingProgress({
+          batch: batchCount,
+          processed: totalGeocoded + totalErrors,
+          geocoded: totalGeocoded,
+          errors: totalErrors,
+          remaining: remaining
+        })
+
+        updateStep('geocoding', {
+          status: 'running',
+          details: `Batch ${batchCount}: ${totalGeocoded} géocodés, ${remaining} restants...`,
+          stats: {
+            'Géocodés': totalGeocoded,
+            'Erreurs': totalErrors,
+            'Restants': remaining,
+          }
+        })
+
+        if (remaining > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+
+      if (batchCount > 0 && steps.find(s => s.id === 'geocoding')?.status === 'running') {
+        updateStep('geocoding', {
+          status: 'success',
+          details: `${totalGeocoded} géocodés, ${totalErrors} erreurs`,
+          stats: {
+            'Géocodés': totalGeocoded,
+            'Erreurs': totalErrors,
+            'Batches': batchCount,
+          }
+        })
+      }
+
+      // Refresh list
+      updateStep('refresh', { status: 'running', details: 'Chargement des données...' })
       const brevetsData = await fetchAllBrevets()
       setBrevets(brevetsData)
       setFilteredBrevets(brevetsData)
+      updateStep('refresh', { status: 'success', details: `${brevetsData.length} brevets chargés` })
+
     } catch (err) {
-      setGeocodeError(err instanceof Error ? err.message : 'Erreur inconnue')
+      const errorMsg = err instanceof Error ? err.message : 'Erreur inconnue'
+      setSteps(prev => prev.map(s =>
+        s.status === 'running' ? { ...s, status: 'error', details: errorMsg } : s
+      ))
     } finally {
-      setGeocoding(false)
+      setIsRunning(false)
     }
+  }
+
+  const clearProgress = () => {
+    setSteps([])
+    setGeocodingProgress(null)
   }
 
   const columns: { key: SortField; label: string; render?: (brevet: Brevet) => React.ReactNode }[] = [
@@ -233,20 +444,20 @@ export function AdminPage() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={handleSync}
-              disabled={syncing || geocoding}
+              onClick={runFullSync}
+              disabled={isRunning}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
             >
-              <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Synchronisation...' : 'Synchroniser'}
+              <RefreshCw className={`w-5 h-5 ${isRunning ? 'animate-spin' : ''}`} />
+              {isRunning ? 'En cours...' : 'Synchronisation complète'}
             </button>
             <button
-              onClick={handleGeocode}
-              disabled={geocoding || syncing}
+              onClick={runGeocodeOnly}
+              disabled={isRunning}
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
             >
-              <MapPin className={`w-5 h-5 ${geocoding ? 'animate-pulse' : ''}`} />
-              {geocoding ? 'Géocodage...' : 'Géocoder'}
+              <MapPin className={`w-5 h-5 ${isRunning ? 'animate-pulse' : ''}`} />
+              Géocoder seulement
             </button>
             <Link
               to="/"
@@ -280,125 +491,103 @@ export function AdminPage() {
           </div>
         </div>
 
-        {/* Panneau de résultats de synchronisation */}
-        {(syncResult || syncError) && (
-          <div className={`mb-6 p-4 rounded-lg ${syncError ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
-            <div className="flex justify-between items-start">
-              <h3 className="font-semibold text-gray-900">
-                {syncError ? 'Erreur de synchronisation' : 'Synchronisation réussie'}
-              </h3>
-              <button
-                onClick={() => { setSyncResult(null); setSyncError(null) }}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        {/* Panneau de progression par étapes */}
+        {steps.length > 0 && (
+          <div className="mb-6 p-4 rounded-lg bg-white border border-gray-200 shadow-sm">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="font-semibold text-gray-900">Progression</h3>
+              {!isRunning && (
+                <button
+                  onClick={clearProgress}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
 
-            {syncError ? (
-              <p className="text-red-600 mt-2">{syncError}</p>
-            ) : syncResult && (
-              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div className="bg-white p-3 rounded border">
-                  <p className="text-gray-500">API - Total récupéré</p>
-                  <p className="text-xl font-bold">{syncResult.stats?.api?.total_brevets_fetched ?? '-'}</p>
-                </div>
-                <div className="bg-white p-3 rounded border">
-                  <p className="text-gray-500">Brevets valides</p>
-                  <p className="text-xl font-bold">{syncResult.stats?.api?.valid_brevets_processed ?? '-'}</p>
-                </div>
-                <div className="bg-white p-3 rounded border">
-                  <p className="text-gray-500">Annulés exclus</p>
-                  <p className="text-xl font-bold text-orange-600">{syncResult.stats?.api?.cancelled_brevets_excluded ?? '-'}</p>
-                </div>
-                <div className="bg-white p-3 rounded border">
-                  <p className="text-gray-500">Clubs</p>
-                  <p className="text-xl font-bold">{syncResult.stats?.api?.total_clubs ?? '-'}</p>
-                </div>
-                <div className="bg-white p-3 rounded border">
-                  <p className="text-gray-500">Nouveaux brevets</p>
-                  <p className="text-xl font-bold text-green-600">{syncResult.stats?.changes?.new_brevets_inserted ?? '-'}</p>
-                </div>
-                <div className="bg-white p-3 rounded border">
-                  <p className="text-gray-500">Modifiés</p>
-                  <p className="text-xl font-bold text-blue-600">{syncResult.stats?.changes?.existing_brevets_updated ?? '-'}</p>
-                </div>
-                <div className="bg-white p-3 rounded border">
-                  <p className="text-gray-500">Inchangés</p>
-                  <p className="text-xl font-bold text-gray-400">{syncResult.stats?.changes?.unchanged_brevets ?? '-'}</p>
-                </div>
-                <div className="bg-white p-3 rounded border">
-                  <p className="text-gray-500">Supprimés</p>
-                  <p className="text-xl font-bold text-red-600">{syncResult.stats?.changes?.deleted_brevets_total ?? '-'}</p>
-                </div>
-                {syncResult.stats?.geocoding?.brevets_to_geocode > 0 && (
-                  <div className="bg-white p-3 rounded border">
-                    <p className="text-gray-500">À géocoder</p>
-                    <p className="text-xl font-bold text-purple-600">{syncResult.stats?.geocoding?.brevets_to_geocode ?? '-'}</p>
+            <div className="space-y-4">
+              {steps.map((step, index) => (
+                <div key={step.id} className="flex items-start gap-4">
+                  {/* Step indicator */}
+                  <div className="flex-shrink-0 mt-0.5">
+                    {step.status === 'pending' && (
+                      <Circle className="w-6 h-6 text-gray-300" />
+                    )}
+                    {step.status === 'running' && (
+                      <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                    )}
+                    {step.status === 'success' && (
+                      <Check className="w-6 h-6 text-green-500" />
+                    )}
+                    {step.status === 'error' && (
+                      <XCircle className="w-6 h-6 text-red-500" />
+                    )}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* Panneau de résultats de géocodage */}
-        {(geocodeResult || geocodeError) && (
-          <div className={`mb-6 p-4 rounded-lg ${geocodeError ? 'bg-red-50 border border-red-200' : 'bg-purple-50 border border-purple-200'}`}>
-            <div className="flex justify-between items-start">
-              <h3 className="font-semibold text-gray-900">
-                {geocodeError ? 'Erreur de géocodage' : 'Géocodage terminé'}
-              </h3>
-              <button
-                onClick={() => { setGeocodeResult(null); setGeocodeError(null) }}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
+                  {/* Step content */}
+                  <div className="flex-grow min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-medium ${
+                        step.status === 'pending' ? 'text-gray-400' :
+                        step.status === 'running' ? 'text-blue-600' :
+                        step.status === 'success' ? 'text-green-600' :
+                        'text-red-600'
+                      }`}>
+                        {step.label}
+                      </span>
+                      {step.status === 'running' && (
+                        <span className="text-xs text-gray-500 animate-pulse">en cours...</span>
+                      )}
+                    </div>
+
+                    {step.details && (
+                      <p className={`text-sm mt-1 ${
+                        step.status === 'error' ? 'text-red-500' : 'text-gray-500'
+                      }`}>
+                        {step.details}
+                      </p>
+                    )}
+
+                    {/* Stats badges */}
+                    {step.stats && Object.keys(step.stats).length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {Object.entries(step.stats).map(([key, value]) => (
+                          <span
+                            key={key}
+                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              key === 'Nouveaux' || key === 'Géocodés' ? 'bg-green-100 text-green-700' :
+                              key === 'Modifiés' ? 'bg-blue-100 text-blue-700' :
+                              key === 'Supprimés' || key === 'Erreurs' || key === 'Annulés' ? 'bg-red-100 text-red-700' :
+                              key === 'Restants' ? 'bg-purple-100 text-purple-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {key}: {value}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
 
-            {geocodeError ? (
-              <p className="text-red-600 mt-2">{geocodeError}</p>
-            ) : geocodeResult && (
-              <div className="mt-3">
-                <p className="text-gray-700 mb-3">{geocodeResult.message}</p>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-                  <div className="bg-white p-3 rounded border">
-                    <p className="text-gray-500">Batch</p>
-                    <p className="text-xl font-bold">{geocodeResult.stats?.batch_depth ?? '-'}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded border">
-                    <p className="text-gray-500">Traités</p>
-                    <p className="text-xl font-bold">{geocodeResult.stats?.processed_in_batch ?? '-'}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded border">
-                    <p className="text-gray-500">Géocodés</p>
-                    <p className="text-xl font-bold text-green-600">{geocodeResult.stats?.geocoded ?? '-'}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded border">
-                    <p className="text-gray-500">Erreurs</p>
-                    <p className="text-xl font-bold text-red-600">{geocodeResult.stats?.errors ?? '-'}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded border">
-                    <p className="text-gray-500">Restants</p>
-                    <p className="text-xl font-bold text-purple-600">{geocodeResult.stats?.remaining_to_geocode ?? '-'}</p>
-                  </div>
+            {/* Geocoding progress bar */}
+            {geocodingProgress && geocodingProgress.remaining > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <div className="flex justify-between text-sm text-gray-600 mb-2">
+                  <span>Géocodage en cours...</span>
+                  <span>{geocodingProgress.geocoded} / {geocodingProgress.geocoded + geocodingProgress.remaining}</span>
                 </div>
-                {geocodeResult.stats?.next_batch_triggered && (
-                  <p className="mt-3 text-sm text-purple-600">
-                    Batch suivant déclenché automatiquement...
-                  </p>
-                )}
-                {geocodeResult.errorSamples && geocodeResult.errorSamples.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-sm font-medium text-gray-700">Exemples d'erreurs :</p>
-                    <ul className="mt-1 text-sm text-red-600 list-disc list-inside">
-                      {geocodeResult.errorSamples.map((err: string, i: number) => (
-                        <li key={i}>{err}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${(geocodingProgress.geocoded / (geocodingProgress.geocoded + geocodingProgress.remaining)) * 100}%`
+                    }}
+                  />
+                </div>
               </div>
             )}
           </div>
