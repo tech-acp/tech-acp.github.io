@@ -25,8 +25,30 @@ export async function fetchBrevets(params: FetchBrevetsParams = {}): Promise<Bre
       let query = supabase
         .from('brevets')
         .select(`
-          *,
-          club:clubs(*)
+          id,
+          date_brevet,
+          distance_brevet,
+          nom_brm,
+          latitude,
+          longitude,
+          ville_depart,
+          departement,
+          region,
+          nom_organisateur,
+          mail_organisateur,
+          club_id,
+          denivele,
+          eligible_r10000,
+          lien_itineraire_brm,
+          acces_homologations,
+          club:clubs(
+            code_acp,
+            nom_club,
+            page_web_club,
+            representant_acp,
+            email_representant_acp,
+            pays
+          )
         `)
         .range(from, to)
 
@@ -111,8 +133,30 @@ export async function fetchAllBrevets(): Promise<Brevet[]> {
       let query = supabase
         .from('brevets')
         .select(`
-          *,
-          club:clubs(*)
+          id,
+          date_brevet,
+          distance_brevet,
+          nom_brm,
+          latitude,
+          longitude,
+          ville_depart,
+          departement,
+          region,
+          nom_organisateur,
+          mail_organisateur,
+          club_id,
+          denivele,
+          eligible_r10000,
+          lien_itineraire_brm,
+          acces_homologations,
+          club:clubs(
+            code_acp,
+            nom_club,
+            page_web_club,
+            representant_acp,
+            email_representant_acp,
+            pays
+          )
         `)
         .range(from, to)
         .order('date_brevet', { ascending: true })

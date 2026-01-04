@@ -7,6 +7,7 @@ import { BrevetFilters } from './components/BrevetFilters'
 import { BrevetSidebar } from './components/BrevetSidebar'
 import { BrevetBottomSheet } from './components/BrevetBottomSheet'
 import { useIsMobile } from './hooks/useMediaQuery'
+import { useDebounce } from './hooks/useDebounce'
 import { Eye, SlidersHorizontal } from 'lucide-react'
 import { isBrevetPast } from './lib/utils'
 
@@ -27,6 +28,9 @@ function App() {
   const [allBrevetsForCounts, setAllBrevetsForCounts] = useState<Brevet[]>([])
   const [showFilters, setShowFilters] = useState(!isMobile)
 
+  // Debounce les filtres pour éviter trop de requêtes API
+  const debouncedFilters = useDebounce(filters, 300)
+
   // Récupérer tous les brevets pour les counts (une seule fois)
   useEffect(() => {
     const fetchAllBrevets = async () => {
@@ -41,19 +45,19 @@ function App() {
     fetchAllBrevets()
   }, [])
 
-  // Récupérer les brevets filtrés depuis Supabase
+  // Récupérer les brevets filtrés depuis Supabase (avec debounce)
   useEffect(() => {
     const fetchFilteredBrevets = async () => {
       setLoading(true)
       try {
-        console.log('🔵 App: Fetching brevets with filters:', filters)
+        console.log('🔵 App: Fetching brevets with filters:', debouncedFilters)
 
         const data = await fetchBrevets({
           year: 2026,
-          dateStart: filters.dateStart,
-          dateEnd: filters.dateEnd,
-          distances: filters.distances,
-          eligibleR10000: filters.eligibleR10000
+          dateStart: debouncedFilters.dateStart,
+          dateEnd: debouncedFilters.dateEnd,
+          distances: debouncedFilters.distances,
+          eligibleR10000: debouncedFilters.eligibleR10000
         })
 
         console.log('🟢 App: Final brevets count:', data.length)
@@ -66,7 +70,7 @@ function App() {
     }
 
     fetchFilteredBrevets()
-  }, [filters])
+  }, [debouncedFilters])
 
   // Initialiser la carte
   useEffect(() => {
