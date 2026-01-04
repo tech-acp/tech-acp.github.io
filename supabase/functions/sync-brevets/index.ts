@@ -259,7 +259,23 @@ Deno.serve(async (req: Request) => {
     console.log(`🟢 Changes detected: ${newBrevetsCount} new, ${actuallyUpdatedCount} updated, ${unchangedBrevetsCount} unchanged`);
     console.log(`🟢 Brevets needing geocoding: ${brevetsNeedingGeocode.length}`);
 
-    // 9. Réinitialiser les coordonnées des brevets dont l'adresse a changé
+    // 9. Réinitialiser last_geocoding_try pour tous les brevets qui ont besoin de géocodage
+    // Cela permet de réessayer les brevets qui avaient échoué précédemment
+    if (brevetsNeedingGeocode.length > 0) {
+      console.log(`🔵 Resetting last_geocoding_try for ${brevetsNeedingGeocode.length} brevets...`);
+      const { error: resetError } = await supabase
+        .from('brevets')
+        .update({ last_geocoding_try: null })
+        .in('id', brevetsNeedingGeocode);
+
+      if (resetError) {
+        console.error('🔴 Error resetting last_geocoding_try:', resetError);
+      } else {
+        console.log(`🟢 Reset last_geocoding_try for ${brevetsNeedingGeocode.length} brevets`);
+      }
+    }
+
+    // 10. Réinitialiser les coordonnées des brevets dont l'adresse a changé
     const brevetsWithAddressChange = brevetsToUpsert.filter(b => {
       const existing = existingBrevetsMap.get(b.id);
       return existing && hasAddressChanged(existing, b);
@@ -279,7 +295,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 10. Déclencher le géocodage en background via geocode-all-brevets (fire-and-forget)
+    // 11. Déclencher le géocodage en background via geocode-all-brevets (fire-and-forget)
     let geocodingTriggered = false;
     if (brevetsNeedingGeocode.length > 0) {
       // Déclencher avec une limite plus élevée et plus de profondeur pour traiter tous les brevets
@@ -296,7 +312,7 @@ Deno.serve(async (req: Request) => {
     } else {
       console.log('🟢 No brevets to geocode');
     }
-    // 11. Retourner un rapport de synchronisation détaillé
+    // 12. Retourner un rapport de synchronisation détaillé
     const report = {
       success: true,
       timestamp: new Date().toISOString(),

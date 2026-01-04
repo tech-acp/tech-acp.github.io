@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchAllBrevets } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { Brevet } from '../types/brevet'
-import { ArrowUpDown, Filter, Home, RefreshCw, Search, X } from 'lucide-react'
+import { ArrowUpDown, Filter, Home, MapPin, RefreshCw, Search, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 type SortDirection = 'asc' | 'desc' | null
@@ -23,6 +23,9 @@ export function AdminPage() {
   const [syncResult, setSyncResult] = useState<any>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [geocoding, setGeocoding] = useState(false)
+  const [geocodeResult, setGeocodeResult] = useState<any>(null)
+  const [geocodeError, setGeocodeError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -167,6 +170,30 @@ export function AdminPage() {
     }
   }
 
+  const handleGeocode = async () => {
+    setGeocoding(true)
+    setGeocodeResult(null)
+    setGeocodeError(null)
+
+    try {
+      const { data, error } = await supabase.functions.invoke('geocode-all-brevets', {
+        body: {}
+      })
+
+      if (error) throw error
+
+      setGeocodeResult(data)
+      // Rafraîchir la liste des brevets après géocodage
+      const brevetsData = await fetchAllBrevets()
+      setBrevets(brevetsData)
+      setFilteredBrevets(brevetsData)
+    } catch (err) {
+      setGeocodeError(err instanceof Error ? err.message : 'Erreur inconnue')
+    } finally {
+      setGeocoding(false)
+    }
+  }
+
   const columns: { key: SortField; label: string; render?: (brevet: Brevet) => React.ReactNode }[] = [
     { key: 'id', label: 'ID' },
     { key: 'nom_brm', label: 'Nom BRM' },
@@ -207,11 +234,19 @@ export function AdminPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={handleSync}
-              disabled={syncing}
+              disabled={syncing || geocoding}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
             >
               <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? 'Synchronisation...' : 'Synchroniser'}
+            </button>
+            <button
+              onClick={handleGeocode}
+              disabled={geocoding || syncing}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            >
+              <MapPin className={`w-5 h-5 ${geocoding ? 'animate-pulse' : ''}`} />
+              {geocoding ? 'Géocodage...' : 'Géocoder'}
             </button>
             <Link
               to="/"
@@ -300,6 +335,68 @@ export function AdminPage() {
                   <div className="bg-white p-3 rounded border">
                     <p className="text-gray-500">À géocoder</p>
                     <p className="text-xl font-bold text-purple-600">{syncResult.stats?.geocoding?.brevets_to_geocode ?? '-'}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Panneau de résultats de géocodage */}
+        {(geocodeResult || geocodeError) && (
+          <div className={`mb-6 p-4 rounded-lg ${geocodeError ? 'bg-red-50 border border-red-200' : 'bg-purple-50 border border-purple-200'}`}>
+            <div className="flex justify-between items-start">
+              <h3 className="font-semibold text-gray-900">
+                {geocodeError ? 'Erreur de géocodage' : 'Géocodage terminé'}
+              </h3>
+              <button
+                onClick={() => { setGeocodeResult(null); setGeocodeError(null) }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {geocodeError ? (
+              <p className="text-red-600 mt-2">{geocodeError}</p>
+            ) : geocodeResult && (
+              <div className="mt-3">
+                <p className="text-gray-700 mb-3">{geocodeResult.message}</p>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                  <div className="bg-white p-3 rounded border">
+                    <p className="text-gray-500">Batch</p>
+                    <p className="text-xl font-bold">{geocodeResult.stats?.batch_depth ?? '-'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded border">
+                    <p className="text-gray-500">Traités</p>
+                    <p className="text-xl font-bold">{geocodeResult.stats?.processed_in_batch ?? '-'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded border">
+                    <p className="text-gray-500">Géocodés</p>
+                    <p className="text-xl font-bold text-green-600">{geocodeResult.stats?.geocoded ?? '-'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded border">
+                    <p className="text-gray-500">Erreurs</p>
+                    <p className="text-xl font-bold text-red-600">{geocodeResult.stats?.errors ?? '-'}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded border">
+                    <p className="text-gray-500">Restants</p>
+                    <p className="text-xl font-bold text-purple-600">{geocodeResult.stats?.remaining_to_geocode ?? '-'}</p>
+                  </div>
+                </div>
+                {geocodeResult.stats?.next_batch_triggered && (
+                  <p className="mt-3 text-sm text-purple-600">
+                    Batch suivant déclenché automatiquement...
+                  </p>
+                )}
+                {geocodeResult.errorSamples && geocodeResult.errorSamples.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-sm font-medium text-gray-700">Exemples d'erreurs :</p>
+                    <ul className="mt-1 text-sm text-red-600 list-disc list-inside">
+                      {geocodeResult.errorSamples.map((err: string, i: number) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
