@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { fetchAllBrevets } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { Brevet } from '../types/brevet'
-import { ArrowUpDown, Check, Circle, Filter, Home, Loader2, Lock, MapPin, RefreshCw, Search, X, XCircle } from 'lucide-react'
+import { ArrowUpDown, Check, Circle, Filter, Home, Loader2, Lock, RefreshCw, Search, X, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 const ADMIN_PASSWORD = 'Velocio2026!'
@@ -329,97 +329,6 @@ export function AdminPage() {
     }
   }
 
-  const runGeocodeOnly = async () => {
-    setIsRunning(true)
-    setGeocodingProgress(null)
-
-    const initialSteps: Step[] = [
-      { id: 'geocoding', label: 'Récupération des coordonnées', status: 'pending' },
-      { id: 'refresh', label: 'Rafraîchissement de la liste', status: 'pending' },
-    ]
-    setSteps(initialSteps)
-
-    try {
-      updateStep('geocoding', { status: 'running', details: 'Recherche des brevets à géocoder...' })
-
-      let totalGeocoded = 0
-      let totalErrors = 0
-      let batchCount = 0
-      let remaining = 1 // Start with 1 to enter the loop
-
-      while (remaining > 0 && batchCount < 100) {
-        batchCount++
-
-        const { data: geocodeData, error: geocodeError } = await supabase.functions.invoke('geocode-all-brevets', {
-          body: {}
-        })
-
-        if (geocodeError) {
-          updateStep('geocoding', { status: 'error', details: `Erreur: ${geocodeError.message}` })
-          break
-        }
-
-        if (batchCount === 1 && geocodeData.stats?.processed_in_batch === 0) {
-          updateStep('geocoding', { status: 'success', details: 'Aucun brevet à géocoder' })
-          break
-        }
-
-        totalGeocoded += geocodeData.stats?.geocoded || 0
-        totalErrors += geocodeData.stats?.errors || 0
-        remaining = geocodeData.stats?.remaining_to_geocode || 0
-
-        setGeocodingProgress({
-          batch: batchCount,
-          processed: totalGeocoded + totalErrors,
-          geocoded: totalGeocoded,
-          errors: totalErrors,
-          remaining: remaining
-        })
-
-        updateStep('geocoding', {
-          status: 'running',
-          details: `Batch ${batchCount}: ${totalGeocoded} géocodés, ${remaining} restants...`,
-          stats: {
-            'Géocodés': totalGeocoded,
-            'Erreurs': totalErrors,
-            'Restants': remaining,
-          }
-        })
-
-        if (remaining > 0) {
-          await new Promise(resolve => setTimeout(resolve, 500))
-        }
-      }
-
-      if (batchCount > 0 && steps.find(s => s.id === 'geocoding')?.status === 'running') {
-        updateStep('geocoding', {
-          status: 'success',
-          details: `${totalGeocoded} géocodés, ${totalErrors} erreurs`,
-          stats: {
-            'Géocodés': totalGeocoded,
-            'Erreurs': totalErrors,
-            'Batches': batchCount,
-          }
-        })
-      }
-
-      // Refresh list
-      updateStep('refresh', { status: 'running', details: 'Chargement des données...' })
-      const brevetsData = await fetchAllBrevets()
-      setBrevets(brevetsData)
-      setFilteredBrevets(brevetsData)
-      updateStep('refresh', { status: 'success', details: `${brevetsData.length} brevets chargés` })
-
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Erreur inconnue'
-      setSteps(prev => prev.map(s =>
-        s.status === 'running' ? { ...s, status: 'error', details: errorMsg } : s
-      ))
-    } finally {
-      setIsRunning(false)
-    }
-  }
-
   const clearProgress = () => {
     setSteps([])
     setGeocodingProgress(null)
@@ -484,7 +393,7 @@ export function AdminPage() {
           </form>
           <Link
             to="/"
-            className="block text-center mt-4 text-blue-600 hover:underline"
+            className="block text-center mt-4 text-gray-600 hover:text-gray-900 hover:underline"
           >
             Retour à la carte
           </Link>
@@ -519,14 +428,6 @@ export function AdminPage() {
             >
               <RefreshCw className={`w-5 h-5 ${isRunning ? 'animate-spin' : ''}`} />
               {isRunning ? 'En cours...' : 'Synchronisation complète'}
-            </button>
-            <button
-              onClick={runGeocodeOnly}
-              disabled={isRunning}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
-            >
-              <MapPin className={`w-5 h-5 ${isRunning ? 'animate-pulse' : ''}`} />
-              Géocoder seulement
             </button>
             <Link
               to="/"
