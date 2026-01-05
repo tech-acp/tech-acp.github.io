@@ -431,7 +431,7 @@ export function AdminPage() {
             </button>
             <Link
               to="/"
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
             >
               <Home className="w-5 h-5" />
               Retour à la carte
