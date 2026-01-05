@@ -2,8 +2,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { fetchAllBrevets } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { Brevet } from '../types/brevet'
-import { ArrowUpDown, Check, Circle, Filter, Home, Loader2, MapPin, RefreshCw, Search, X, XCircle } from 'lucide-react'
+import { ArrowUpDown, Check, Circle, Filter, Home, Loader2, Lock, MapPin, RefreshCw, Search, X, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
+
+const ADMIN_PASSWORD = 'Velocio2026!'
 
 type SortDirection = 'asc' | 'desc' | null
 type SortField = keyof Brevet | 'club.nom_club' | 'club.pays'
@@ -31,6 +33,13 @@ interface GeocodingProgress {
 }
 
 export function AdminPage() {
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('admin_authenticated') === 'true'
+  })
+  const [password, setPassword] = useState('')
+  const [passwordError, setPasswordError] = useState(false)
+
   const [brevets, setBrevets] = useState<Brevet[]>([])
   const [filteredBrevets, setFilteredBrevets] = useState<Brevet[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,6 +52,17 @@ export function AdminPage() {
   const [isRunning, setIsRunning] = useState(false)
   const [steps, setSteps] = useState<Step[]>([])
   const [geocodingProgress, setGeocodingProgress] = useState<GeocodingProgress | null>(null)
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (password === ADMIN_PASSWORD) {
+      setIsAuthenticated(true)
+      sessionStorage.setItem('admin_authenticated', 'true')
+      setPasswordError(false)
+    } else {
+      setPasswordError(true)
+    }
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -177,7 +197,7 @@ export function AdminPage() {
     const initialSteps: Step[] = [
       { id: 'fetch-api', label: 'Récupération des données ACP', status: 'pending' },
       { id: 'sync-db', label: 'Synchronisation base de données', status: 'pending' },
-      { id: 'geocoding', label: 'Géocodage des brevets', status: 'pending' },
+      { id: 'geocoding', label: 'Récupération des coordonnées', status: 'pending' },
       { id: 'refresh', label: 'Rafraîchissement de la liste', status: 'pending' },
     ]
     setSteps(initialSteps)
@@ -314,7 +334,7 @@ export function AdminPage() {
     setGeocodingProgress(null)
 
     const initialSteps: Step[] = [
-      { id: 'geocoding', label: 'Géocodage des brevets', status: 'pending' },
+      { id: 'geocoding', label: 'Récupération des coordonnées', status: 'pending' },
       { id: 'refresh', label: 'Rafraîchissement de la liste', status: 'pending' },
     ]
     setSteps(initialSteps)
@@ -423,6 +443,55 @@ export function AdminPage() {
     { key: 'longitude', label: 'Longitude' },
     { key: 'lien_itineraire_brm', label: 'Lien Itinéraire', render: (b) => b.lien_itineraire_brm ? <a href={b.lien_itineraire_brm} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Lien</a> : '-' },
   ]
+
+  // Login screen
+  if (!isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+          <div className="flex items-center justify-center mb-6">
+            <Lock className="w-12 h-12 text-blue-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-center text-gray-900 mb-2">
+            Administration
+          </h1>
+          <p className="text-gray-600 text-center mb-6">
+            Entrez le mot de passe pour accéder à cette page
+          </p>
+          <form onSubmit={handleLogin}>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setPasswordError(false)
+              }}
+              placeholder="Mot de passe"
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none ${
+                passwordError ? 'border-red-500' : 'border-gray-300'
+              }`}
+              autoFocus
+            />
+            {passwordError && (
+              <p className="text-red-500 text-sm mt-2">Mot de passe incorrect</p>
+            )}
+            <button
+              type="submit"
+              className="w-full mt-4 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              Se connecter
+            </button>
+          </form>
+          <Link
+            to="/"
+            className="block text-center mt-4 text-blue-600 hover:underline"
+          >
+            Retour à la carte
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (
