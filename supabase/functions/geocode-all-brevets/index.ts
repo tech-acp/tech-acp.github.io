@@ -13,12 +13,41 @@ const MAX_RECURSION_DEPTH = 100; // Max 100 itérations = 3000 brevets max
 async function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
-async function geocodeAddress(city, department, country) {
+// Table de normalisation des noms de pays (multi-langues) vers code ISO
+const COUNTRY_CODES: Record<string, string> = {
+    'switzerland': 'ch', 'suisse': 'ch', 'schweiz': 'ch', 'svizzera': 'ch',
+    'germany': 'de', 'allemagne': 'de', 'deutschland': 'de',
+    'italy': 'it', 'italie': 'it', 'italia': 'it',
+    'spain': 'es', 'espagne': 'es', 'españa': 'es',
+    'belgium': 'be', 'belgique': 'be', 'belgië': 'be',
+    'netherlands': 'nl', 'pays-bas': 'nl', 'nederland': 'nl',
+    'austria': 'at', 'autriche': 'at', 'österreich': 'at',
+    'portugal': 'pt', 'united kingdom': 'gb', 'royaume-uni': 'gb',
+};
+
+function areSameCountry(a: string, b: string): boolean {
+    const la = a.toLowerCase().trim();
+    const lb = b.toLowerCase().trim();
+    if (la === lb) return true;
+    const codeA = COUNTRY_CODES[la];
+    const codeB = COUNTRY_CODES[lb];
+    return !!(codeA && codeB && codeA === codeB);
+}
+
+async function geocodeAddress(city, department, country, region) {
     // Construire la requête avec uniquement les parties non-nulles
     const addressParts = [];
     if (city && city !== 'Pas encore déterminée') addressParts.push(city);
-    if (department) addressParts.push(department);
-    if (country) addressParts.push(country);
+
+    // Si departement est en fait le nom du pays (ex: BRM suisses avec departement="Switzerland"),
+    // utiliser region (canton) à la place et ne pas ajouter pays pour éviter les contradictions
+    // (ex: Konstanz est en Allemagne mais le BRM est rattaché à la Suisse)
+    if (department && country && areSameCountry(department, country)) {
+        if (region) addressParts.push(region);
+    } else {
+        if (department) addressParts.push(department);
+        if (country) addressParts.push(country);
+    }
     if (addressParts.length === 0) {
         console.warn('No address information available for geocoding');
         return null;
@@ -83,7 +112,7 @@ Deno.serve(async (req) => {
         // Initialize Supabase client
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
         // Get brevets without coordinates, with at least ville_depart, and not yet tried
-        let query = supabase.from('brevets').select('id, ville_depart, departement, pays').is('latitude', null).is('last_geocoding_try', null).not('ville_depart', 'is', null).neq('ville_depart', 'Pas encore déterminée').limit(limit);
+        let query = supabase.from('brevets').select('id, ville_depart, departement, pays, region').is('latitude', null).is('last_geocoding_try', null).not('ville_depart', 'is', null).neq('ville_depart', 'Pas encore déterminée').limit(limit);
         if (year) {
             const yearStart = `${year}-01-01`;
             const yearEnd = `${year}-12-31`;
@@ -120,7 +149,7 @@ Deno.serve(async (req) => {
         const now = new Date().toISOString();
         for (const brevet of brevets) {
             try {
-                const coords = await geocodeAddress(brevet.ville_depart, brevet.departement, brevet.pays);
+                const coords = await geocodeAddress(brevet.ville_depart, brevet.departement, brevet.pays, brevet.region);
                 if (coords) {
                     // Succès : mettre à jour les coordonnées + last_geocoding_try
                     const { error: updateError } = await supabase.from('brevets').update({
