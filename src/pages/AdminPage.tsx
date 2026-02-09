@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { fetchAllBrevets } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { Brevet } from '../types/brevet'
-import { ArrowUpDown, Check, Circle, Filter, Home, Loader2, Lock, RefreshCw, Search, X, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, Check, Circle, Filter, Home, Loader2, Lock, RefreshCw, Search, X, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 const ADMIN_PASSWORD = 'Velocio2026!'
@@ -32,6 +32,16 @@ interface GeocodingProgress {
   remaining: number
 }
 
+interface FailedGeocodeBrevet {
+  id: number
+  nom_brm: string | null
+  ville_depart: string | null
+  departement: string | null
+  pays: string | null
+  date_brevet: string | null
+  last_geocoding_try: string | null
+}
+
 export function AdminPage() {
   // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -52,6 +62,11 @@ export function AdminPage() {
   const [isRunning, setIsRunning] = useState(false)
   const [steps, setSteps] = useState<Step[]>([])
   const [geocodingProgress, setGeocodingProgress] = useState<GeocodingProgress | null>(null)
+
+  // Failed geocoding popup state
+  const [showFailedGeocodePopup, setShowFailedGeocodePopup] = useState(false)
+  const [failedGeocodeBrevets, setFailedGeocodeBrevets] = useState<FailedGeocodeBrevet[]>([])
+  const [loadingFailedGeocodes, setLoadingFailedGeocodes] = useState(false)
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
@@ -334,6 +349,27 @@ export function AdminPage() {
     setGeocodingProgress(null)
   }
 
+  const fetchFailedGeocodes = async () => {
+    setLoadingFailedGeocodes(true)
+    try {
+      const { data, error } = await supabase
+        .from('brevets')
+        .select('id, nom_brm, ville_depart, departement, pays, date_brevet, last_geocoding_try')
+        .is('latitude', null)
+        .not('last_geocoding_try', 'is', null)
+        .order('last_geocoding_try', { ascending: false })
+
+      if (error) throw error
+
+      setFailedGeocodeBrevets(data || [])
+      setShowFailedGeocodePopup(true)
+    } catch (error) {
+      console.error('Error fetching failed geocodes:', error)
+    } finally {
+      setLoadingFailedGeocodes(false)
+    }
+  }
+
   const columns: { key: SortField; label: string; render?: (brevet: Brevet) => React.ReactNode }[] = [
     { key: 'id', label: 'ID' },
     { key: 'nom_brm', label: 'Nom BRM' },
@@ -560,6 +596,24 @@ export function AdminPage() {
                 </div>
               </div>
             )}
+
+            {/* Button to view failed geocodes */}
+            {!isRunning && steps.some(s => s.id === 'geocoding' && s.status === 'success' && s.stats?.['Erreurs'] && Number(s.stats['Erreurs']) > 0) && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <button
+                  onClick={fetchFailedGeocodes}
+                  disabled={loadingFailedGeocodes}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors"
+                >
+                  {loadingFailedGeocodes ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4" />
+                  )}
+                  Voir les détails des erreurs de géocodage
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -629,6 +683,101 @@ export function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Failed Geocoding Popup */}
+      {showFailedGeocodePopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-orange-500" />
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Brevets sans coordonnées ({failedGeocodeBrevets.length})
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowFailedGeocodePopup(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-auto p-4">
+              {failedGeocodeBrevets.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">
+                  Aucun brevet avec erreur de géocodage.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {failedGeocodeBrevets.map((brevet) => (
+                    <div
+                      key={brevet.id}
+                      className="p-4 bg-gray-50 rounded-lg border border-gray-200"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="font-medium text-gray-900">
+                              #{brevet.id}
+                            </span>
+                            {brevet.nom_brm && (
+                              <span className="text-gray-700">{brevet.nom_brm}</span>
+                            )}
+                            {brevet.date_brevet && (
+                              <span className="text-sm text-gray-500">
+                                ({new Date(brevet.date_brevet).toLocaleDateString('fr-FR')})
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            <span className="font-medium">Adresse recherchée :</span>{' '}
+                            <span className="text-red-600">
+                              {[brevet.ville_depart, brevet.departement, brevet.pays]
+                                .filter(Boolean)
+                                .join(', ') || 'Aucune adresse disponible'}
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-500 mt-1">
+                            <span className="font-medium">Raison :</span>{' '}
+                            {!brevet.ville_depart && !brevet.departement && !brevet.pays
+                              ? 'Aucune information d\'adresse disponible'
+                              : brevet.ville_depart === 'Pas encore déterminée'
+                                ? 'Ville non encore déterminée'
+                                : 'Adresse non trouvée par Nominatim (OpenStreetMap)'}
+                          </div>
+                        </div>
+                        {brevet.last_geocoding_try && (
+                          <span className="text-xs text-gray-400">
+                            Tenté le {new Date(brevet.last_geocoding_try).toLocaleString('fr-FR')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-500">
+                  Ces brevets ont une adresse qui n'a pas pu être géocodée par Nominatim.
+                </p>
+                <button
+                  onClick={() => setShowFailedGeocodePopup(false)}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
