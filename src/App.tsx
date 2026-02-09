@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { fetchBrevets } from './lib/api'
@@ -7,7 +7,6 @@ import { BrevetFilters } from './components/BrevetFilters'
 import { BrevetSidebar } from './components/BrevetSidebar'
 import { BrevetBottomSheet } from './components/BrevetBottomSheet'
 import { useIsMobile } from './hooks/useMediaQuery'
-import { useDebounce } from './hooks/useDebounce'
 import { Eye, SlidersHorizontal } from 'lucide-react'
 import { isBrevetPast } from './lib/utils'
 
@@ -16,7 +15,7 @@ function App() {
   const map = useRef<maplibregl.Map | null>(null)
   const isMobile = useIsMobile()
 
-  const [brevets, setBrevets] = useState<Brevet[]>([])
+  const [allBrevets, setAllBrevets] = useState<Brevet[]>([])
   const [selectedBrevets, setSelectedBrevets] = useState<Brevet[]>([])
   const [filters, setFilters] = useState<BrevetFiltersType>({
     distances: [200, 300, 400, 600, 1000],
@@ -25,43 +24,16 @@ function App() {
     eligibleR10000: false
   })
   const [loading, setLoading] = useState(true)
-  const [allBrevetsForCounts, setAllBrevetsForCounts] = useState<Brevet[]>([])
   const [showFilters, setShowFilters] = useState(!isMobile)
 
-  // Debounce les filtres pour éviter trop de requêtes API
-  const debouncedFilters = useDebounce(filters, 300)
-
-  // Récupérer tous les brevets pour les counts (une seule fois)
+  // Fetch unique au montage — toutes les données de l'année 2026
   useEffect(() => {
-    const fetchAllBrevets = async () => {
-      try {
-        const data = await fetchBrevets({ year: 2026 })
-        setAllBrevetsForCounts(data)
-      } catch (error) {
-        console.error('Erreur lors de la récupération des counts:', error)
-      }
-    }
-
-    fetchAllBrevets()
-  }, [])
-
-  // Récupérer les brevets filtrés depuis Supabase (avec debounce)
-  useEffect(() => {
-    const fetchFilteredBrevets = async () => {
+    const loadBrevets = async () => {
       setLoading(true)
       try {
-        console.log('🔵 App: Fetching brevets with filters:', debouncedFilters)
-
-        const data = await fetchBrevets({
-          year: 2026,
-          dateStart: debouncedFilters.dateStart,
-          dateEnd: debouncedFilters.dateEnd,
-          distances: debouncedFilters.distances,
-          eligibleR10000: debouncedFilters.eligibleR10000
-        })
-
-        console.log('🟢 App: Final brevets count:', data.length)
-        setBrevets(data)
+        const data = await fetchBrevets(2026)
+        console.log('🟢 App: Loaded all brevets:', data.length)
+        setAllBrevets(data)
       } catch (error) {
         console.error('🔴 App: Erreur lors de la récupération des brevets:', error)
       } finally {
@@ -69,8 +41,24 @@ function App() {
       }
     }
 
-    fetchFilteredBrevets()
-  }, [debouncedFilters])
+    loadBrevets()
+  }, [])
+
+  // Filtrage client-side — instantané, aucune requête réseau
+  const brevets = useMemo(() => {
+    return allBrevets.filter(brevet => {
+      // Filtre par date de début
+      if (filters.dateStart && brevet.date_brevet < filters.dateStart) return false
+      // Filtre par date de fin
+      if (filters.dateEnd && brevet.date_brevet > filters.dateEnd) return false
+      // Filtre par distances
+      if (filters.distances.length === 0) return false
+      if (brevet.distance_brevet && !filters.distances.includes(brevet.distance_brevet)) return false
+      // Filtre par éligibilité R10000
+      if (filters.eligibleR10000 && !brevet.eligible_r10000) return false
+      return true
+    })
+  }, [allBrevets, filters])
 
   // Initialiser la carte
   useEffect(() => {
@@ -268,20 +256,21 @@ function App() {
   }, [selectedBrevets, brevets])
 
   // Calculer les counts de brevets par distance (en tenant compte des filtres de date)
-  const distanceCounts = allBrevetsForCounts.reduce((acc, brevet) => {
-    const distance = brevet.distance_brevet
-    if (distance) {
-      // Appliquer les filtres de date si présents
-      const passesDateFilter = 
-        (!filters.dateStart || (brevet.date_brevet && brevet.date_brevet >= filters.dateStart)) &&
-        (!filters.dateEnd || (brevet.date_brevet && brevet.date_brevet <= filters.dateEnd))
-      
-      if (passesDateFilter) {
-        acc[distance] = (acc[distance] || 0) + 1
+  const distanceCounts = useMemo(() => {
+    return allBrevets.reduce((acc, brevet) => {
+      const distance = brevet.distance_brevet
+      if (distance) {
+        const passesDateFilter =
+          (!filters.dateStart || brevet.date_brevet >= filters.dateStart) &&
+          (!filters.dateEnd || brevet.date_brevet <= filters.dateEnd)
+
+        if (passesDateFilter) {
+          acc[distance] = (acc[distance] || 0) + 1
+        }
       }
-    }
-    return acc
-  }, {} as Record<number, number>)
+      return acc
+    }, {} as Record<number, number>)
+  }, [allBrevets, filters.dateStart, filters.dateEnd])
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
