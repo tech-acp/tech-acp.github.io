@@ -23,6 +23,18 @@ const COUNTRY_CODES: Record<string, string> = {
     'netherlands': 'nl', 'pays-bas': 'nl', 'nederland': 'nl',
     'austria': 'at', 'autriche': 'at', 'österreich': 'at',
     'portugal': 'pt', 'united kingdom': 'gb', 'royaume-uni': 'gb',
+    'russia': 'ru', 'russie': 'ru', 'russland': 'ru',
+    'philippines': 'ph',
+    'ireland': 'ie', 'irlande': 'ie',
+    'cambodia': 'kh', 'cambodge': 'kh',
+    'china': 'cn', 'chine': 'cn',
+    'india': 'in', 'inde': 'in',
+    'japan': 'jp', 'japon': 'jp',
+    'south korea': 'kr', 'corée du sud': 'kr',
+    'australia': 'au', 'australie': 'au',
+    'canada': 'ca',
+    'united states': 'us', 'états-unis': 'us', 'usa': 'us',
+    'brazil': 'br', 'brésil': 'br',
 };
 
 function areSameCountry(a: string, b: string): boolean {
