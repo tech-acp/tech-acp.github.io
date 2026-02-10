@@ -47,9 +47,13 @@ function areSameCountry(a: string, b: string): boolean {
 }
 
 async function geocodeAddress(city, department, country, region) {
+    // Ne pas géocoder sans ville : on obtiendrait le centre du pays, inutile
+    if (!city || city === 'Pas encore déterminée') {
+        console.warn('Skipping geocoding: no city provided');
+        return null;
+    }
     // Construire la requête avec uniquement les parties non-nulles
-    const addressParts = [];
-    if (city && city !== 'Pas encore déterminée') addressParts.push(city);
+    const addressParts = [city];
 
     // Si departement est en fait le nom du pays (ex: BRM suisses avec departement="Switzerland"),
     // utiliser region (canton) à la place et ne pas ajouter pays pour éviter les contradictions
