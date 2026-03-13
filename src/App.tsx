@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { fetchBrevets } from './lib/api'
+import { fetchBrevets, fetchBrevetDetails } from './lib/api'
 import { Brevet, BrevetFilters as BrevetFiltersType } from './types/brevet'
 import { BrevetFilters } from './components/BrevetFilters'
 import { BrevetSidebar } from './components/BrevetSidebar'
@@ -17,6 +17,7 @@ function App() {
 
   const [allBrevets, setAllBrevets] = useState<Brevet[]>([])
   const [selectedBrevets, setSelectedBrevets] = useState<Brevet[]>([])
+  const [loadingDetails, setLoadingDetails] = useState(false)
   const [filters, setFilters] = useState<BrevetFiltersType>({
     distances: [200, 300, 400, 600, 1000],
     dateStart: '2026-01-01',
@@ -221,7 +222,19 @@ function App() {
           )
 
           console.log('🔵 Brevets au même point:', brevetsAtSameLocation.length)
-          setSelectedBrevets(brevetsAtSameLocation)
+
+          // Fetch les détails complets (club, organisateur, etc.) à la demande
+          setLoadingDetails(true)
+          setSelectedBrevets(brevetsAtSameLocation) // Afficher immédiatement les données légères
+          fetchBrevetDetails(brevetsAtSameLocation.map(b => b.id))
+            .then(detailedBrevets => {
+              setSelectedBrevets(detailedBrevets)
+            })
+            .catch(err => {
+              console.error('🔴 Error fetching brevet details:', err)
+              // On garde les données légères en fallback
+            })
+            .finally(() => setLoadingDetails(false))
         }
       })
 

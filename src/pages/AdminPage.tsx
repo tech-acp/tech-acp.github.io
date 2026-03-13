@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { fetchAllBrevets } from '../lib/api'
+import { fetchAllBrevets, invalidateCache } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { Brevet } from '../types/brevet'
 import { AlertTriangle, ArrowUpDown, Check, Circle, Filter, Home, Loader2, Lock, RefreshCw, Search, X, XCircle } from 'lucide-react'
@@ -80,7 +80,14 @@ export function AdminPage() {
   }
 
   useEffect(() => {
+    // Ne charger les données que si l'utilisateur est authentifié
+    if (!isAuthenticated) {
+      setLoading(false)
+      return
+    }
+
     const fetchData = async () => {
+      setLoading(true)
       try {
         const data = await fetchAllBrevets()
         setBrevets(data)
@@ -93,7 +100,7 @@ export function AdminPage() {
     }
 
     fetchData()
-  }, [])
+  }, [isAuthenticated])
 
   // Appliquer les filtres, la recherche et le tri
   useEffect(() => {
@@ -323,7 +330,8 @@ export function AdminPage() {
         })
       }
 
-      // Step 4: Refresh list
+      // Step 4: Refresh list — invalider le cache pour que les visiteurs voient les nouvelles données
+      invalidateCache()
       updateStep('refresh', { status: 'running', details: 'Chargement des données...' })
       const brevetsData = await fetchAllBrevets()
       setBrevets(brevetsData)
@@ -358,6 +366,7 @@ export function AdminPage() {
         .is('latitude', null)
         .not('last_geocoding_try', 'is', null)
         .order('last_geocoding_try', { ascending: false })
+        .limit(500)
 
       if (error) throw error
 
