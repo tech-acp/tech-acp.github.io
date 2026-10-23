@@ -5,8 +5,6 @@ import { Brevet } from '../types/brevet'
 import { AlertTriangle, ArrowUpDown, Check, Circle, Filter, Home, Loader2, Lock, RefreshCw, Search, X, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-const ADMIN_PASSWORD = 'Velocio2026!'
-
 type SortDirection = 'asc' | 'desc' | null
 type SortField = keyof Brevet | 'club.nom_club' | 'club.pays'
 
@@ -44,9 +42,9 @@ interface FailedGeocodeBrevet {
 
 export function AdminPage() {
   // Authentication state
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem('admin_authenticated') === 'true'
-  })
+  // Le mot de passe est vérifié côté edge functions (secret ADMIN_PASSWORD), jamais dans le front
+  const [adminPassword, setAdminPassword] = useState(() => sessionStorage.getItem('admin_password'))
+  const isAuthenticated = adminPassword !== null
   const [password, setPassword] = useState('')
   const [passwordError, setPasswordError] = useState(false)
 
@@ -68,15 +66,18 @@ export function AdminPage() {
   const [failedGeocodeBrevets, setFailedGeocodeBrevets] = useState<FailedGeocodeBrevet[]>([])
   const [loadingFailedGeocodes, setLoadingFailedGeocodes] = useState(false)
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true)
-      sessionStorage.setItem('admin_authenticated', 'true')
-      setPasswordError(false)
-    } else {
+    const { error } = await supabase.functions.invoke('sync-brevets?check', {
+      headers: { 'x-admin-password': password }
+    })
+    if (error) {
       setPasswordError(true)
+      return
     }
+    sessionStorage.setItem('admin_password', password)
+    setAdminPassword(password)
+    setPasswordError(false)
   }
 
   useEffect(() => {
@@ -228,7 +229,9 @@ export function AdminPage() {
       // Step 1: Fetch from ACP API + Sync DB (done together by sync-brevets)
       updateStep('fetch-api', { status: 'running', details: 'Connexion à l\'API ACP...' })
 
-      const { data: syncData, error: syncError } = await supabase.functions.invoke('sync-brevets')
+      const { data: syncData, error: syncError } = await supabase.functions.invoke('sync-brevets', {
+        headers: { 'x-admin-password': adminPassword ?? '' }
+      })
 
       if (syncError) throw syncError
 
@@ -275,6 +278,7 @@ export function AdminPage() {
           batchCount++
 
           const { data: geocodeData, error: geocodeError } = await supabase.functions.invoke('geocode-all-brevets', {
+            headers: { 'x-admin-password': adminPassword ?? '' },
             body: {}
           })
 
