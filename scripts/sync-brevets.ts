@@ -13,7 +13,8 @@ const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
 // Les brevets absents des années synchronisées sont supprimés : garder toutes les années affichées
 const yearArg = parseInt(args.find(arg => arg.startsWith('--year='))?.split('=')[1] || '')
-const years = yearArg ? [yearArg] : [2026, 2027]
+const currentYear = new Date().getFullYear()
+const years = yearArg ? [yearArg] : [currentYear, currentYear + 1]
 const geocodeOnly = args.includes('--geocode-only')
 
 async function main() {

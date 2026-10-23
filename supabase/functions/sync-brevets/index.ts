@@ -90,8 +90,9 @@ Deno.serve(async (req: Request) => {
       throw new Error('ACP_API_TOKEN is not configured. Please set it in Supabase Dashboard > Edge Functions > Secrets');
     }
     // 1. Récupérer les données de l'API source
-    // Toutes les années synchronisées : un brevet absent de ces années est supprimé à l'étape 7
-    const YEARS = [2026, 2027];
+    // Année en cours + suivante (affichées par la carte). Un brevet absent de ces années est supprimé à l'étape 7
+    const currentYear = new Date().getFullYear();
+    const YEARS = [currentYear, currentYear + 1];
     const allApiBrevets = (await Promise.all(YEARS.map(async (year) => {
       const response = await fetch(`https://myaccount.audax-club-parisien.com/api/brm?year=${year}`, {
         headers: {
@@ -316,8 +317,8 @@ Deno.serve(async (req: Request) => {
     // 11. Déclencher le géocodage en background via geocode-all-brevets (fire-and-forget)
     let geocodingTriggered = false;
     if (brevetsNeedingGeocode.length > 0) {
-      // Déclencher avec une limite plus élevée et plus de profondeur pour traiter tous les brevets
-      const geocodeUrl = `${supabaseUrl}/functions/v1/geocode-all-brevets?limit=50&depth=100`;
+      // depth = numéro du lot : geocode-all-brevets se relance jusqu'à MAX_RECURSION_DEPTH lots de 50
+      const geocodeUrl = `${supabaseUrl}/functions/v1/geocode-all-brevets?limit=50&depth=1`;
       console.log(`🔵 Triggering geocoding for ${brevetsNeedingGeocode.length} brevets...`);
       fetch(geocodeUrl, {
         method: 'POST',

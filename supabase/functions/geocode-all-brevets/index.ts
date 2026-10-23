@@ -3,14 +3,18 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { isAuthorized } from '../_shared/auth.ts';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const NOMINATIM_CONFIG = {
-    baseUrl: 'https://nominatim.openstreetmap.org',
+// Photon (données OpenStreetMap) : Nominatim renvoie 403 aux IP de Supabase
+const PHOTON_CONFIG = {
+    baseUrl: 'https://photon.komoot.io',
     userAgent: 'BRM-Cycling-Map-Explorer/1.0',
     rateLimit: 1000,
     maxRetries: 3
 };
 // Configuration pour l'auto-invocation récursive
 const MAX_RECURSION_DEPTH = 100; // Max 100 itérations = 3000 brevets max
+// Photon limite le débit (429) ou ne répond plus : erreur temporaire, on arrête le lot sans marquer
+// les brevets restants comme échoués, la prochaine synchro reprendra
+class RateLimitedError extends Error {}
 async function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -71,39 +75,42 @@ async function geocodeAddress(city, department, country, region) {
     }
     const searchQuery = addressParts.join(', ');
     const encodedQuery = encodeURIComponent(searchQuery);
-    for (let attempt = 1; attempt <= NOMINATIM_CONFIG.maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= PHOTON_CONFIG.maxRetries; attempt++) {
         try {
             if (attempt > 1) {
-                await delay(NOMINATIM_CONFIG.rateLimit * Math.pow(2, attempt - 1));
+                await delay(PHOTON_CONFIG.rateLimit * Math.pow(2, attempt - 1));
             } else {
-                await delay(NOMINATIM_CONFIG.rateLimit);
+                await delay(PHOTON_CONFIG.rateLimit);
             }
-            const response = await fetch(`${NOMINATIM_CONFIG.baseUrl}/search?q=${encodedQuery}&format=json&limit=1`, {
+            const response = await fetch(`${PHOTON_CONFIG.baseUrl}/api/?q=${encodedQuery}&limit=1`, {
                 headers: {
-                    'User-Agent': NOMINATIM_CONFIG.userAgent
+                    'User-Agent': PHOTON_CONFIG.userAgent
                 }
             });
+            if (response.status === 429) {
+                if (attempt < PHOTON_CONFIG.maxRetries) continue;
+                throw new RateLimitedError(`Rate limited on ${searchQuery}`);
+            }
             if (!response.ok) {
-                if (response.status === 429 && attempt < NOMINATIM_CONFIG.maxRetries) {
-                    continue;
-                }
-                console.error(`Nominatim API error for ${searchQuery}: ${response.statusText}`);
+                console.error(`Photon API error for ${searchQuery}: ${response.status} ${response.statusText}`);
                 return null;
             }
-            const results = await response.json();
-            if (!results || results.length === 0) {
+            const { features } = await response.json();
+            if (!features || features.length === 0) {
                 console.warn(`No coordinates found for address: ${searchQuery}`);
                 return null;
             }
-            const { lat, lon } = results[0];
+            // GeoJSON : [longitude, latitude]
+            const [lon, lat] = features[0].geometry.coordinates;
             return {
-                latitude: parseFloat(lat),
-                longitude: parseFloat(lon)
+                latitude: lat,
+                longitude: lon
             };
         } catch (error) {
+            if (error instanceof RateLimitedError) throw error;
             console.error(`Error geocoding ${searchQuery} (attempt ${attempt}):`, error);
-            if (attempt === NOMINATIM_CONFIG.maxRetries) {
-                return null;
+            if (attempt === PHOTON_CONFIG.maxRetries) {
+                throw new RateLimitedError(`Photon unreachable for ${searchQuery}`);
             }
         }
     }
@@ -173,6 +180,7 @@ Deno.serve(async (req) => {
         let errorCount = 0;
         const errorSamples = [];
         const now = new Date().toISOString();
+        let rateLimited = false;
         for (const brevet of brevets) {
             try {
                 const coords = await geocodeAddress(brevet.ville_depart, brevet.departement, brevet.pays, brevet.region);
@@ -204,6 +212,11 @@ Deno.serve(async (req) => {
                     }
                 }
             } catch (error) {
+                if (error instanceof RateLimitedError) {
+                    console.warn(`⚠️ ${error.message}, stopping batch`);
+                    rateLimited = true;
+                    break;
+                }
                 // Erreur : marquer last_geocoding_try pour ne pas réessayer
                 await supabase.from('brevets').update({
                     last_geocoding_try: now
@@ -226,7 +239,7 @@ Deno.serve(async (req) => {
         const remaining = remainingCount || 0;
         let nextBatchTriggered = false;
         // Auto-invocation récursive si nécessaire
-        if (remaining > 0 && depth < MAX_RECURSION_DEPTH) {
+        if (remaining > 0 && depth < MAX_RECURSION_DEPTH && !rateLimited) {
             const nextUrl = `${SUPABASE_URL}/functions/v1/geocode-all-brevets?limit=${limit}&depth=${depth + 1}`;
             console.log(`🔵 Triggering next batch (depth ${depth + 1}), ${remaining} brevets remaining...`);
             fetch(nextUrl, {
@@ -249,6 +262,7 @@ Deno.serve(async (req) => {
                 geocoded: geocodedCount,
                 errors: errorCount,
                 remaining_to_geocode: remaining,
+                rate_limited: rateLimited,
                 next_batch_triggered: nextBatchTriggered
             },
             errorSamples: errorSamples.length > 0 ? errorSamples : undefined

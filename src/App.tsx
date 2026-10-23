@@ -10,6 +10,10 @@ import { useIsMobile } from './hooks/useMediaQuery'
 import { Eye, SlidersHorizontal } from 'lucide-react'
 import { isBrevetPast } from './lib/utils'
 
+// Année en cours + suivante, comme la synchro (sync-brevets)
+const CURRENT_YEAR = new Date().getFullYear()
+const YEARS = [CURRENT_YEAR, CURRENT_YEAR + 1]
+
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
@@ -20,19 +24,19 @@ function App() {
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [filters, setFilters] = useState<BrevetFiltersType>({
     distances: [200, 300, 400, 600, 1000],
-    dateStart: '2026-01-01',
-    dateEnd: '2027-12-31',
+    dateStart: `${YEARS[0]}-01-01`,
+    dateEnd: `${YEARS[1]}-12-31`,
     eligibleR10000: false
   })
   const [loading, setLoading] = useState(true)
   const [showFilters, setShowFilters] = useState(!isMobile)
 
-  // Fetch unique au montage — toutes les données des années 2026 et 2027
+  // Fetch unique au montage — toutes les données des années synchronisées
   useEffect(() => {
     const loadBrevets = async () => {
       setLoading(true)
       try {
-        const data = (await Promise.all([2026, 2027].map(fetchBrevets))).flat()
+        const data = (await Promise.all(YEARS.map(fetchBrevets))).flat()
         console.log('🟢 App: Loaded all brevets:', data.length)
         setAllBrevets(data)
       } catch (error) {
