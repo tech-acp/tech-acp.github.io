@@ -75,16 +75,19 @@ Deno.serve(async (req: Request) => {
       throw new Error('ACP_API_TOKEN is not configured. Please set it in Supabase Dashboard > Edge Functions > Secrets');
     }
     // 1. Récupérer les données de l'API source
-    const apiUrl = 'https://myaccount.audax-club-parisien.com/api/brm?year=2026';
-    const response = await fetch(apiUrl, {
-      headers: {
-        'token': acpToken
+    // Toutes les années synchronisées : un brevet absent de ces années est supprimé à l'étape 7
+    const YEARS = [2026, 2027];
+    const allApiBrevets = (await Promise.all(YEARS.map(async (year) => {
+      const response = await fetch(`https://myaccount.audax-club-parisien.com/api/brm?year=${year}`, {
+        headers: {
+          'token': acpToken
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`API request failed for ${year}: ${response.status} ${response.statusText}`);
       }
-    });
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-    }
-    const allApiBrevets = await response.json();
+      return response.json();
+    }))).flat();
     console.log(`🟢 Fetched ${allApiBrevets.length} total brevets from API`);
     // 2. Filtrer les brevets : exclure ceux avec statut "Annule"
     const apiBrevets = allApiBrevets.filter((brevet) => brevet.statut !== 'Annule');

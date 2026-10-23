@@ -21,18 +21,18 @@ function App() {
   const [filters, setFilters] = useState<BrevetFiltersType>({
     distances: [200, 300, 400, 600, 1000],
     dateStart: '2026-01-01',
-    dateEnd: '2026-12-31',
+    dateEnd: '2027-12-31',
     eligibleR10000: false
   })
   const [loading, setLoading] = useState(true)
   const [showFilters, setShowFilters] = useState(!isMobile)
 
-  // Fetch unique au montage — toutes les données de l'année 2026
+  // Fetch unique au montage — toutes les données des années 2026 et 2027
   useEffect(() => {
     const loadBrevets = async () => {
       setLoading(true)
       try {
-        const data = await fetchBrevets(2026)
+        const data = (await Promise.all([2026, 2027].map(fetchBrevets))).flat()
         console.log('🟢 App: Loaded all brevets:', data.length)
         setAllBrevets(data)
       } catch (error) {

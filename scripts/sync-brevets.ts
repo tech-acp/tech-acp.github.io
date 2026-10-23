@@ -11,7 +11,9 @@ import { ProgressTracker } from './lib/progress-tracker.js'
 // Parse CLI arguments
 const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
-const year = parseInt(args.find(arg => arg.startsWith('--year='))?.split('=')[1] || '') || 2026
+// Les brevets absents des années synchronisées sont supprimés : garder toutes les années affichées
+const yearArg = parseInt(args.find(arg => arg.startsWith('--year='))?.split('=')[1] || '')
+const years = yearArg ? [yearArg] : [2026, 2027]
 const geocodeOnly = args.includes('--geocode-only')
 
 async function main() {
@@ -30,8 +32,8 @@ async function main() {
 
   if (!geocodeOnly) {
     // 1. Fetch from API
-    console.log(chalk.blue(`📡 Fetching brevets from ACP API (year: ${year})...`))
-    const allApiBrevets = await fetchBrevets(year)
+    console.log(chalk.blue(`📡 Fetching brevets from ACP API (years: ${years.join(', ')})...`))
+    const allApiBrevets = (await Promise.all(years.map(fetchBrevets))).flat()
     const apiBrevets = allApiBrevets.filter(b => b.statut !== 'Annule')
     const cancelledBrevets = allApiBrevets.filter(b => b.statut === 'Annule')
 
