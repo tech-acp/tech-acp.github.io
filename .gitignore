@@ -31,3 +31,4 @@ dist-ssr
 # Script state files
 scripts/.sync-state.json
 scripts/*.log
+supabase/.temp
