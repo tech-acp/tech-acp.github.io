@@ -93,7 +93,7 @@ Deno.serve(async (req: Request) => {
     // Année en cours + suivante (affichées par la carte). Un brevet absent de ces années est supprimé à l'étape 7
     const currentYear = new Date().getFullYear();
     const YEARS = [currentYear, currentYear + 1];
-    const allApiBrevets = (await Promise.all(YEARS.map(async (year) => {
+    const fetchedBrevets = (await Promise.all(YEARS.map(async (year) => {
       const response = await fetch(`https://myaccount.audax-club-parisien.com/api/brm?year=${year}`, {
         headers: {
           'token': acpToken
@@ -104,6 +104,8 @@ Deno.serve(async (req: Request) => {
       }
       return response.json();
     }))).flat();
+    // L'API d'une année renvoie aussi les brevets de début janvier suivant : dédoublonner par id
+    const allApiBrevets = [...new Map(fetchedBrevets.map((b) => [b.id, b])).values()];
     console.log(`🟢 Fetched ${allApiBrevets.length} total brevets from API`);
     // 2. Filtrer les brevets : exclure ceux avec statut "Annule"
     const apiBrevets = allApiBrevets.filter((brevet) => brevet.statut !== 'Annule');
@@ -205,12 +207,15 @@ Deno.serve(async (req: Request) => {
       };
     });
     // 6. Upsert tous les brevets valides (sans modifier les coordonnées et données GPX existantes)
-    const { error: upsertError } = await supabase.from('brevets').upsert(brevetsToUpsert, {
-      onConflict: 'id'
-    });
-    if (upsertError) {
-      console.error('🔴 Error upserting brevets:', upsertError);
-      throw new Error(`Failed to upsert brevets: ${upsertError.message}`);
+    // Par lots pour limiter la mémoire de la fonction (~11 000 brevets sur deux années)
+    for (let i = 0; i < brevetsToUpsert.length; i += PAGE_SIZE) {
+      const { error: upsertError } = await supabase.from('brevets').upsert(brevetsToUpsert.slice(i, i + PAGE_SIZE), {
+        onConflict: 'id'
+      });
+      if (upsertError) {
+        console.error('🔴 Error upserting brevets:', upsertError);
+        throw new Error(`Failed to upsert brevets: ${upsertError.message}`);
+      }
     }
     console.log(`🟢 Upserted ${brevetsToUpsert.length} brevets (coordinates and GPX data preserved)`);
     // 7. Supprimer les brevets obsolètes ET les brevets annulés

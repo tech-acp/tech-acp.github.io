@@ -24,7 +24,7 @@ function App() {
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [filters, setFilters] = useState<BrevetFiltersType>({
     distances: [200, 300, 400, 600, 1000],
-    dateStart: `${YEARS[0]}-01-01`,
+    dateStart: new Date().toLocaleDateString('en-CA'), // aujourd'hui, YYYY-MM-DD en heure locale
     dateEnd: `${YEARS[1]}-12-31`,
     eligibleR10000: false
   })

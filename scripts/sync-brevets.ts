@@ -34,7 +34,9 @@ async function main() {
   if (!geocodeOnly) {
     // 1. Fetch from API
     console.log(chalk.blue(`📡 Fetching brevets from ACP API (years: ${years.join(', ')})...`))
-    const allApiBrevets = (await Promise.all(years.map(fetchBrevets))).flat()
+    const fetched = (await Promise.all(years.map(fetchBrevets))).flat()
+    // L'API d'une année renvoie aussi les brevets de début janvier suivant : dédoublonner par id
+    const allApiBrevets = [...new Map(fetched.map(b => [b.id, b])).values()]
     const apiBrevets = allApiBrevets.filter(b => b.statut !== 'Annule')
     const cancelledBrevets = allApiBrevets.filter(b => b.statut === 'Annule')
 
