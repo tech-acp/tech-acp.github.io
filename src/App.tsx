@@ -39,7 +39,8 @@ function App() {
     eligibleR10000: false
   })
   const [loading, setLoading] = useState(true)
-  const [showFilters, setShowFilters] = useState(!isMobile)
+  // Filtres repliés par défaut, et repliés à chaque clic sur la carte
+  const [showFilters, setShowFilters] = useState(false)
   // Liste des brevets repliée (desktop) : la sélection et les tracés restent affichés
   const [listCollapsed, setListCollapsed] = useState(false)
   const listVisible = !isMobile && selectedBrevets.length > 0 && !listCollapsed
@@ -94,6 +95,8 @@ function App() {
       center: [1.888334, 46.603354],
       zoom: 6
     })
+
+    map.current.on('click', () => setShowFilters(false))
 
     // Tracés sous les marqueurs (la couche des marqueurs est ajoutée après, donc au-dessus)
     map.current.on('load', () => {
