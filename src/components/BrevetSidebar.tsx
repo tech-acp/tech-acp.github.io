@@ -1,110 +1,53 @@
 import { Brevet } from '../types/brevet'
-import { useState } from 'react'
-import { BrevetCommonInfo } from './BrevetCommonInfo'
-import { BrevetCard } from './BrevetCard'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { BrevetPanelContent } from './BrevetCommonInfo'
 
 interface BrevetSidebarProps {
   brevets: Brevet[]
   onClose: () => void
+  onShowRoute: (brevetId: number) => void
+  focusedRouteId: number | null
+  hoveredRouteId: number | null
+  onHoverRoute: (brevetId: number | null) => void
+  collapsed: boolean
+  onToggleCollapsed: () => void
 }
 
-export function BrevetSidebar({ brevets, onClose }: BrevetSidebarProps) {
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
-
-  const toggleExpand = (id: number) => {
-    setExpandedIds(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(id)) {
-        newSet.delete(id)
-      } else {
-        newSet.add(id)
-      }
-      return newSet
-    })
-  }
-
-  const isOpen = brevets.length > 0
-
-  // Extraire les données communes (si tous les brevets partagent la même valeur)
-  const commonClub = brevets.length > 0 && brevets.every(b => b.club?.nom_club === brevets[0].club?.nom_club)
-    ? (brevets[0].club ?? null)
-    : null
-
-  const commonVilleDepart = brevets.length > 0 && brevets.every(b => b.ville_depart === brevets[0].ville_depart)
-    ? brevets[0].ville_depart
-    : null
-
-  const commonDepartement = brevets.length > 0 && brevets.every(b => b.departement === brevets[0].departement)
-    ? brevets[0].departement
-    : null
-
-  const commonRegion = brevets.length > 0 && brevets.every(b => b.region === brevets[0].region)
-    ? brevets[0].region
-    : null
+export function BrevetSidebar({ brevets, onClose, onShowRoute, focusedRouteId, hoveredRouteId, onHoverRoute, collapsed, onToggleCollapsed }: BrevetSidebarProps) {
+  const hasSelection = brevets.length > 0
+  const isOpen = hasSelection && !collapsed
 
   return (
-    <div
-      className={`
-        absolute top-0 right-0 h-full w-96 bg-white shadow-2xl z-20
-        overflow-y-auto transition-all duration-500 ease-out
-        ${isOpen ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}
-      `}
-      style={{
-        scrollbarWidth: 'thin',
-        scrollbarColor: '#cbd5e1 #f1f5f9'
-      }}
-    >
-      {/* Header avec gradient bleu moderne */}
-      <div
-        className="sticky top-0 z-10"
-        style={{
-          background: 'linear-gradient(135deg, #2E5077 0%, #1e3a55 100%)',
-          borderBottomLeftRadius: '24px',
-          borderBottomRightRadius: '24px',
-          boxShadow: '0 8px 16px -4px rgba(46, 80, 119, 0.3)'
-        }}
+    <>
+    {/* Languette pour replier / déplier la liste, collée au bord du panneau */}
+    {hasSelection && (
+      <button
+        type="button"
+        onClick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? `Afficher la liste (${brevets.length} brevet${brevets.length > 1 ? 's' : ''})` : 'Masquer la liste'}
+        title={collapsed ? 'Afficher la liste' : 'Masquer la liste'}
+        className={`ui-fade absolute top-1/2 -translate-y-1/2 z-20 flex items-center gap-1 h-14 pl-1.5 pr-1 rounded-l-xl
+                    bg-white/75 backdrop-blur-md border border-r-0 border-white/60 shadow-lg text-slate-600 hover:text-slate-900 hover:bg-white/90 cursor-pointer
+                    transition-[right,background-color,color] duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)]
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2E5077]/40
+                    ${collapsed ? 'right-0' : 'right-[400px]'}`}
       >
-        <BrevetCommonInfo
-          commonClub={commonClub}
-          commonVilleDepart={commonVilleDepart}
-          commonDepartement={commonDepartement}
-          commonRegion={commonRegion}
-          variant="desktop"
-        />
-      </div>
-
-      {brevets.length > 0 && (
-        <div className="p-6 space-y-4">
-          {[...brevets].sort((a, b) => new Date(a.date_brevet).getTime() - new Date(b.date_brevet).getTime()).map((brevet) => (
-            <BrevetCard
-                key={brevet.id}
-              brevet={brevet}
-              isExpanded={expandedIds.has(brevet.id)}
-              onToggle={() => toggleExpand(brevet.id)}
-              commonClub={commonClub}
-              commonVilleDepart={commonVilleDepart}
-              variant="desktop"
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Style pour la scrollbar personnalisée (WebKit) */}
-      <style>{`
-        .overflow-y-auto::-webkit-scrollbar {
-          width: 6px;
-        }
-        .overflow-y-auto::-webkit-scrollbar-track {
-          background: #f1f5f9;
-        }
-        .overflow-y-auto::-webkit-scrollbar-thumb {
-          background: #cbd5e1;
-          border-radius: 3px;
-        }
-        .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-          background: #94a3b8;
-        }
-      `}</style>
-    </div>
+        {collapsed ? <ChevronLeft className="w-4 h-4" aria-hidden="true" /> : <ChevronRight className="w-4 h-4" aria-hidden="true" />}
+        {collapsed && <span className="text-xs font-bold tabular-nums">{brevets.length}</span>}
+      </button>
+    )}
+    <aside
+      aria-label="Brevets sélectionnés"
+      className={`
+        absolute top-0 right-0 h-full w-[400px] bg-white/60 backdrop-blur-xl backdrop-saturate-150 shadow-2xl z-20 border-l border-white/60
+        overflow-y-auto transition-transform duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none
+        ${isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}
+      `}
+      style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 transparent' }}
+    >
+      {hasSelection && <BrevetPanelContent key={brevets[0].id} brevets={brevets} onClose={onClose} onShowRoute={onShowRoute} focusedRouteId={focusedRouteId} hoveredRouteId={hoveredRouteId} onHoverRoute={onHoverRoute} />}
+    </aside>
+    </>
   )
 }

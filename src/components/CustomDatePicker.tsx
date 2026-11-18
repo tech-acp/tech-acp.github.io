@@ -1,81 +1,100 @@
-import { forwardRef } from 'react'
+import { forwardRef, ReactNode, useRef } from 'react'
 import DatePicker, { registerLocale } from 'react-datepicker'
 import { fr } from 'date-fns/locale/fr'
 import 'react-datepicker/dist/react-datepicker.css'
 import { Calendar } from 'lucide-react'
 import './CustomDatePicker.css'
+import { toIso } from '../lib/utils'
 
 registerLocale('fr', fr)
 
-interface CustomDatePickerProps {
-  value: string | null
-  onChange: (date: string | null) => void
+interface DateRangePickerProps {
+  start: string | null
+  end: string | null
+  // Un seul jour : end = null. Rien de sélectionné : start = end = null
+  onChange: (start: string | null, end: string | null) => void
   placeholder?: string
+  // Contenu affiché sous le calendrier (raccourcis) ; reçoit de quoi refermer le calendrier
+  footer?: (close: () => void) => ReactNode
 }
 
 interface CustomInputProps {
-  value?: string
+  label: string
+  isEmpty: boolean
   onClick?: () => void
 }
 
+// YYYY-MM-DD -> Date en heure locale (new Date('YYYY-MM-DD') serait en UTC)
+const toDate = (iso: string | null) => {
+  if (!iso) return null
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+const formatDay = (date: Date) =>
+  date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+
+// Libellé court : « 21–22 nov. 2026 », « 21 nov. → 3 déc. 2026 », sinon dates complètes
+const formatRange = (start: Date, end: Date) => {
+  if (start.getFullYear() !== end.getFullYear()) return `${formatDay(start)} → ${formatDay(end)}`
+  if (start.getMonth() !== end.getMonth()) {
+    return `${start.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} → ${formatDay(end)}`
+  }
+  return `${start.getDate()}–${formatDay(end)}`
+}
+
 const CustomInput = forwardRef<HTMLButtonElement, CustomInputProps>(
-  ({ value, onClick }, ref) => (
+  ({ label, isEmpty, onClick }, ref) => (
     <button
       type="button"
       onClick={onClick}
       ref={ref}
-      className="group relative px-4 py-2.5 border border-slate-200 rounded-xl text-sm
-                 transition-all duration-300 ease-out
-                 hover:border-acp-blue hover:shadow-lg hover:shadow-acp-blue/10 hover:-translate-y-0.5
-                 focus:outline-none focus:border-acp-blue focus:ring-2 focus:ring-acp-blue/30
-                 active:scale-[0.98] active:shadow-sm
-                 bg-gradient-to-b from-white to-slate-50/50
-                 flex items-center gap-2.5 min-w-[140px]
-                 shadow-sm font-medium overflow-hidden"
+      className="w-full min-h-[40px] pl-3 pr-9 py-2 border border-slate-200/80 rounded-xl text-sm bg-white/70
+                 flex items-center gap-2 shadow-sm cursor-pointer transition-colors duration-150
+                 hover:border-[#2E5077]/50
+                 focus-visible:outline-none focus-visible:border-[#2E5077] focus-visible:ring-2 focus-visible:ring-[#2E5077]/30"
     >
-      <div className="absolute inset-0 bg-gradient-to-r from-acp-blue/0 via-acp-blue/5 to-acp-blue/0
-                      opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-      <Calendar className="w-4 h-4 text-acp-blue relative z-10
-                           transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12" />
-      <span className={`relative z-10 transition-colors duration-200 ${
-        value ? 'text-slate-800 font-semibold' : 'text-slate-400'
-      }`}>
-        {value || 'Sélectionner'}
-      </span>
+      <Calendar className="w-4 h-4 text-[#2E5077] flex-shrink-0" aria-hidden="true" />
+      <span className={`truncate ${isEmpty ? 'text-slate-500' : 'text-slate-800 font-semibold'}`}>{label}</span>
     </button>
   )
 )
 
 CustomInput.displayName = 'CustomInput'
 
-export function CustomDatePicker({ value, onChange, placeholder }: CustomDatePickerProps) {
-  const dateValue = value ? new Date(value) : null
+export function DateRangePicker({ start, end, onChange, placeholder = 'Toutes les dates', footer }: DateRangePickerProps) {
+  const pickerRef = useRef<DatePicker>(null)
+  const startDate = toDate(start)
+  const endDate = toDate(end)
 
-  const handleChange = (date: Date | null) => {
-    if (date) {
-      // Convert to YYYY-MM-DD format
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const day = String(date.getDate()).padStart(2, '0')
-      onChange(`${year}-${month}-${day}`)
-    } else {
-      onChange(null)
-    }
-  }
+  const label = !startDate
+    ? placeholder
+    : !endDate || endDate.getTime() === startDate.getTime()
+      ? formatDay(startDate)
+      : formatRange(startDate, endDate)
 
   return (
     <DatePicker
-      selected={dateValue}
-      onChange={handleChange}
-      dateFormat="dd/MM/yyyy"
+      ref={pickerRef}
+      selectsRange
+      startDate={startDate}
+      endDate={endDate}
+      onChange={([s, e]) => onChange(toIso(s), toIso(e))}
       locale="fr"
-      customInput={<CustomInput />}
-      placeholderText={placeholder}
+      customInput={<CustomInput label={label} isEmpty={!startDate} />}
       showMonthDropdown
       showYearDropdown
       dropdownMode="select"
       calendarStartDay={1}
-    />
+      isClearable
+      clearButtonTitle="Effacer les dates"
+      ariaLabelClose="Effacer les dates"
+      wrapperClassName="w-full"
+    >
+      {footer && (
+        <div className="border-t border-slate-100 p-3 flex flex-col gap-2 bg-white">
+          {footer(() => pickerRef.current?.setOpen(false))}
+        </div>
+      )}
+    </DatePicker>
   )
 }
-

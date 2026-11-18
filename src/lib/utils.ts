@@ -11,3 +11,9 @@ export function isBrevetPast(dateString: string): boolean {
   today.setHours(0, 0, 0, 0)
   return brevetDate < today
 }
+
+// Date -> YYYY-MM-DD en heure locale (toISOString serait en UTC)
+export const toIso = (date: Date | null) =>
+  date
+    ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    : null

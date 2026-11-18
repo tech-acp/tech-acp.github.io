@@ -129,8 +129,7 @@
 }
 
 /* Selected Date */
-.react-datepicker__day--selected,
-.react-datepicker__day--keyboard-selected {
+.react-datepicker__day--selected {
   background: linear-gradient(135deg, #0066cc 0%, #0052a3 100%) !important;
   color: white !important;
   font-weight: 700 !important;
@@ -138,12 +137,35 @@
   transform: scale(1.05) !important;
 }
 
-.react-datepicker__day--selected:hover,
-.react-datepicker__day--keyboard-selected:hover {
+.react-datepicker__day--selected:hover {
   background: linear-gradient(135deg, #0052a3 0%, #003d7a 100%) !important;
   color: white !important;
   box-shadow: 0 6px 16px rgba(0, 102, 204, 0.4) !important;
   transform: scale(1.08) !important;
+}
+
+/* Jour sous le focus clavier : contour seulement, pour ne pas faire croire à une sélection */
+.react-datepicker__day--keyboard-selected:not(.react-datepicker__day--selected):not(.react-datepicker__day--in-range) {
+  background: transparent !important;
+  box-shadow: inset 0 0 0 2px rgba(0, 102, 204, 0.4) !important;
+  color: inherit !important;
+}
+
+/* Période : début/fin pleins, jours intermédiaires teintés (aussi pendant le survol avant le 2e clic) */
+.react-datepicker__day--range-start,
+.react-datepicker__day--range-end,
+.react-datepicker__day--selecting-range-start {
+  background: #0066cc !important;
+  color: white !important;
+  font-weight: 700 !important;
+}
+
+.react-datepicker__day--in-range:not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end),
+.react-datepicker__day--in-selecting-range:not(.react-datepicker__day--selecting-range-start) {
+  background: rgba(0, 102, 204, 0.12) !important;
+  color: #003d7a !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 /* Outside Month */
@@ -236,3 +258,33 @@
 .react-datepicker__year-dropdown::-webkit-scrollbar-thumb:hover {
   background: rgb(148 163 184);
 }
+
+/* Bouton d'effacement (×) : neutraliser le style global des boutons */
+.react-datepicker__close-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 0.75rem 0 0 !important;
+}
+
+.react-datepicker__close-icon::after {
+  background-color: #94a3b8 !important;
+  font-size: 14px !important;
+  height: 18px !important;
+  width: 18px !important;
+  line-height: 1 !important;
+  padding: 0 !important;
+}
+
+.react-datepicker__close-icon:hover::after {
+  background-color: #2E5077 !important;
+}
+
+/* Aujourd'hui : simple contour (le fond plein se confondait avec une sélection) */
+.react-datepicker__day--today:not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end):not(.react-datepicker__day--selecting-range-start):not(.react-datepicker__day--in-range) {
+  background: transparent !important;
+  color: rgb(30 41 59) !important;
+  box-shadow: inset 0 0 0 2px #8B3A3A !important;
+  font-weight: 700 !important;
+}
+

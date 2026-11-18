@@ -451,3 +451,34 @@ button:focus-visible {
 .react-datepicker-popper[data-placement^="top"] .react-datepicker {
   animation: slideIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* --- Animations légères de l'interface (désactivées si l'utilisateur réduit les animations) ---
+   fill-mode backwards : l'état final revient au style de l'élément (ex. opacité des brevets passés) */
+@keyframes ui-slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ui-fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ui-fade-down {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ui-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ui-slide-up { animation: ui-slide-up 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.ui-fade-in-up { animation: ui-fade-in-up 280ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.ui-fade-down { animation: ui-fade-down 240ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.ui-fade { animation: ui-fade 200ms ease-out backwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-slide-up, .ui-fade-in-up, .ui-fade-down, .ui-fade { animation: none; }
+}

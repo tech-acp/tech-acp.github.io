@@ -83,6 +83,7 @@ export function mapApiBrevet(apiBrevet: {
 
 export interface BrevetFilters {
   distances: number[]
+  // Aucune date : brevets à venir. dateStart seule : ce jour-là. Les deux : la période
   dateStart: string | null
   dateEnd: string | null
   eligibleR10000: boolean
