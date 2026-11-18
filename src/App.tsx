@@ -162,9 +162,7 @@ function App() {
           'text-padding': 4
         },
         paint: {
-          'text-color': '#ffffff',
-          'text-opacity': ['get', 'opacity'],
-          'icon-opacity': ['get', 'opacity']
+          'text-color': '#ffffff'
         }
       })
 
@@ -470,11 +468,12 @@ function App() {
         }
       }))
     })
-    // Étiquettes de distance : à ~40 % du parcours, décalées d'un tracé à l'autre pour ne pas se superposer
+    // Étiquettes de distance : à ~40 % du parcours, décalées d'un tracé à l'autre pour ne pas se superposer.
+    // Tracé mis en avant : seule son étiquette reste (estompées, les autres étaient illisibles et lui prenaient la place)
     const labels = map.current?.getSource('routes-labels') as maplibregl.GeoJSONSource | undefined
     labels?.setData({
       type: 'FeatureCollection',
-      features: shown.filter(b => b.distance_brevet).map((b, i) => {
+      features: shown.filter(b => b.distance_brevet && (focusedRouteId === null || b.id === focusedRouteId)).map((b, i) => {
         const track = routes[b.id]!
         const target = track.dist[track.dist.length - 1] * (0.3 + (i % 4) * 0.12)
         const at = Math.max(0, track.dist.findIndex(d => d >= target))
@@ -483,8 +482,7 @@ function App() {
           geometry: { type: 'Point', coordinates: track.coords[at] },
           properties: {
             label: `${b.distance_brevet} km`,
-            color: getDistanceColor(b.distance_brevet ?? 0),
-            opacity: focusedRouteId === null || b.id === focusedRouteId ? 1 : 0.25
+            color: getDistanceColor(b.distance_brevet ?? 0)
           }
         }
       })
