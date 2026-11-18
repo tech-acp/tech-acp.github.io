@@ -16,9 +16,6 @@ const AVAILABLE_DISTANCES = [200, 300, 400, 600, 1000]
 
 type Range = { start: string; end: string }
 
-// Fenêtre des brevets qualificatifs pour Paris-Brest-Paris 2027
-const PBP_2027: Range = { start: '2026-10-01', end: '2027-06-30' }
-
 // 30 jours à partir d'aujourd'hui inclus
 function getNext30Days(): Range {
   const today = new Date()
@@ -186,12 +183,6 @@ export function BrevetFilters({ filters, onFiltersChange, distanceCounts = {}, i
                     </button>
                   ))}
                 </div>
-                <Switch
-                  checked={isRange(PBP_2027)}
-                  onChange={() => { toggleRange(PBP_2027); close() }}
-                  label="Qualificatif PBP 2027"
-                  hint="Du 1er oct. 2026 au 30 juin 2027"
-                />
               </>
             )}
           />
